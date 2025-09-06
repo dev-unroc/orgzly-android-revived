@@ -482,8 +482,12 @@
     <string name="pref_key_images_scale_down_to_width" translatable="false">pref_key_images_fixed_width</string>
     <bool name="pref_default_images_scale_down_to_width" translatable="false">false</bool>
 
-    <string name="pref_key_images_scale_down_to_width_value" translatable="false">pref_key_set_images_fixed_width_value</string>
-    <string name="pref_default_images_scale_down_to_width_value" translatable="false">256</string>
+    <string name="pref_key_images_scale_down_to_width_value" translatable="false">pref_key_images_scale_down_to_width_value</string>
+    <string name="pref_default_images_scale_down_to_width_value" translatable="false">600</string>
+    
+    <!-- Attachments -->
+    <string name="pref_key_attachments_enabled" translatable="false">pref_key_attachments_enabled</string>
+    <bool name="pref_default_attachments_enabled" translatable="false">true</bool>
 
     <string name="pref_key_file_absolute_root" translatable="false">pref_key_file_absolute_root</string>
     <string name="pref_default_file_absolute_root" translatable="false">/</string>

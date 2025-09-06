@@ -282,4 +282,12 @@
             android:dependency="@string/pref_key_images_scale_down_to_width"/>
 
     </PreferenceCategory>
+    
+    <PreferenceCategory android:title="@string/attachments">
+        <SwitchPreference
+            android:key="@string/pref_key_attachments_enabled"
+            android:title="@string/enable_attachment_system"
+            android:summary="@string/enable_attachment_system_summary"
+            android:defaultValue="@bool/pref_default_attachments_enabled"/>
+    </PreferenceCategory>
 </androidx.preference.PreferenceScreen>

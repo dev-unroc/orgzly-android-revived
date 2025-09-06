@@ -775,6 +775,15 @@ public class AppPreferences {
                 context.getResources().getBoolean(R.bool.pref_default_images_enabled));
     }
 
+    /*
+     * Allow attachment system
+     */
+    public static boolean attachmentsEnabled(Context context) {
+        return getDefaultSharedPreferences(context).getBoolean(
+                context.getResources().getString(R.string.pref_key_attachments_enabled),
+                context.getResources().getBoolean(R.bool.pref_default_attachments_enabled));
+    }
+
     public static boolean imagesScaleDownToWidth(Context context) {
         return getDefaultSharedPreferences(context).getBoolean(
                 context.getResources().getString(R.string.pref_key_images_scale_down_to_width),

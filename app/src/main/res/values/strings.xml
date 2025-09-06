@@ -590,6 +590,10 @@
     <string name="scale_down_to_width">Scale down to width</string>
     <string name="scale_down_to_width_summary">Scale down image to specified width</string>
 
+    <string name="attachments">Attachments</string>
+    <string name="enable_attachment_system">Enable attachment system</string>
+    <string name="enable_attachment_system_summary">Copy shared files to .attach directories using org-mode format</string>
+
     <string name="file_absolute_root">Root for absolute links (e.g. file:/readme.txt)</string>
     <string name="file_relative_root">Root for relative links (e.g. file:readme.txt)</string>
 

@@ -592,7 +592,10 @@
 
     <string name="attachments">Attachments</string>
     <string name="enable_attachment_system">Enable attachment system</string>
-    <string name="enable_attachment_system_summary">Copy shared files to .attach directories using org-mode format</string>
+    <string name="enable_attachment_system_summary">Copy shared files to attachments directories using org-mode format</string>
+
+    <string name="pref_key_attachment_storage_location">attachment_storage_location</string>
+    <string name="pref_default_attachment_storage_location">alongside_notes</string>
 
     <string name="file_absolute_root">Root for absolute links (e.g. file:/readme.txt)</string>
     <string name="file_relative_root">Root for relative links (e.g. file:readme.txt)</string>

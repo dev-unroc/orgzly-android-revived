@@ -1,6 +1,7 @@
 package com.orgzly.android.ui
 
 import android.content.*
+import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
@@ -323,21 +324,55 @@ abstract class CommonActivity : AppCompatActivity() {
     }
 
     private fun openFile(file: File) {
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "Opening file: ${file.absolutePath}")
+            LogUtils.d(TAG, "File exists: ${file.exists()}")
+            LogUtils.d(TAG, "File size: ${file.length()} bytes")
+            LogUtils.d(TAG, "File readable: ${file.canRead()}")
+        }
+        
         val contentUri = FileProvider.getUriForFile(
             this, BuildConfig.APPLICATION_ID + ".fileprovider", file)
+        
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "FileProvider URI: $contentUri")
+        }
 
-        val intent = Intent(Intent.ACTION_VIEW, contentUri)
+        // Detect MIME type
+        val mimeType = contentResolver.getType(contentUri) ?: run {
+            // Fallback MIME type detection
+            val extension = file.extension.lowercase()
+            when (extension) {
+                "jpg", "jpeg" -> "image/jpeg"
+                "png" -> "image/png"
+                "gif" -> "image/gif"
+                "pdf" -> "application/pdf"
+                "txt" -> "text/plain"
+                else -> "*/*"
+            }
+        }
+        
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "Detected MIME type: $mimeType")
+        }
 
+        val intent = Intent(Intent.ACTION_VIEW)
+        intent.setDataAndType(contentUri, mimeType)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-        // Added for support on API 16
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
 
         // Try to start an activity for opening the file
         try {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Starting activity with intent: $intent")
+            }
             startActivity(intent)
         } catch (e: ActivityNotFoundException) {
+            LogUtils.d(TAG, "No app found to open file: ${file.absolutePath}")
             showSnackbar(R.string.external_file_no_app_found)
+        } catch (e: Exception) {
+            LogUtils.d(TAG, "Failed to open file: ${file.absolutePath}: ${e.message}")
+            showSnackbar(getString(R.string.failed_to_open_linked_file_with_reason, e.localizedMessage))
         }
     }
 

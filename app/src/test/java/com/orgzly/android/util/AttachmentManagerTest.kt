@@ -30,7 +30,7 @@ class AttachmentManagerTest : OrgzlyTest() {
         testBookFile.writeText("* Test Book")
         
         // Test attachment directory will be created as needed
-        testAttachmentDir = File(testBookFile.parent, ".attach")
+        testAttachmentDir = File(testBookFile.parent, "attachments")
     }
 
     @After
@@ -57,7 +57,7 @@ class AttachmentManagerTest : OrgzlyTest() {
         val baseDir = AttachmentManager.getBookAttachmentBaseDir(testBookFile)
         
         assertEquals(testAttachmentDir, baseDir)
-        assertEquals(".attach", baseDir.name)
+        assertEquals("attachments", baseDir.name)
     }
 
     @Test
@@ -111,8 +111,8 @@ class AttachmentManagerTest : OrgzlyTest() {
         assertNotNull("Should resolve attachment link", resolvedFile)
         assertEquals(testFile, resolvedFile)
         
-        // Test direct .attach/ path
-        val directPath = "./.attach/$noteId/test-image.jpg"
+        // Test direct attachments/ path
+        val directPath = "./attachments/$noteId/test-image.jpg"
         val resolvedDirect = AttachmentManager.resolveAttachmentLink(
             testBookFile, noteId, directPath)
             

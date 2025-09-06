@@ -15,10 +15,10 @@ import kotlin.jvm.JvmOverloads
 import kotlin.jvm.JvmStatic
 
 /**
- * Manages org-mode style attachments in .attach directories.
+ * Manages org-mode style attachments in attachments directories.
  * 
  * Follows Emacs org-mode attachment convention:
- * - Attachments stored in .attach/{note-id}/ directories
+ * - Attachments stored in attachments/{note-id}/ directories
  * - Links use [[attachment:filename]] format
  * - Compatible with Emacs org-attach system
  */
@@ -27,15 +27,15 @@ object AttachmentManager {
 
     /**
      * Get the base attachment directory for a book.
-     * Returns the .attach directory relative to the book's location.
+     * Returns the attachments directory relative to the book's location.
      */
     fun getBookAttachmentBaseDir(bookFile: File): File {
-        return File(bookFile.parent, ".attach")
+        return File(bookFile.parent, "attachments")
     }
 
     /**
      * Get the attachment directory for a specific note.
-     * Creates directory structure: book-dir/.attach/{note-id}/
+     * Creates directory structure: book-dir/attachments/{note-id}/
      */
     fun getNoteAttachmentDir(bookFile: File, noteId: String): File {
         val baseDir = getBookAttachmentBaseDir(bookFile)
@@ -148,7 +148,7 @@ object AttachmentManager {
 
     /**
      * Resolve an attachment link to an actual file.
-     * Handles both "attachment:filename" and direct ".attach/" paths.
+     * Handles both "attachment:filename" and direct "attachments/" paths.
      */
     fun resolveAttachmentLink(
         bookFile: File,
@@ -171,8 +171,9 @@ object AttachmentManager {
                     null
                 }
             }
-            attachmentPath.contains(".attach/") -> {
-                // Handle direct .attach/ paths like ./.attach/id/filename.ext
+            // attachmentPath.contains("/attachments/") || attachmentPath.contains("/.attach/") -> {
+            attachmentPath.contains("/attachments/") -> {
+                // Handle direct attachment paths like ./attachments/id/filename.ext or ./attachments/id/filename.ext
                 val bookDir = bookFile.parentFile ?: return null
                 val file = File(bookDir, attachmentPath)
                 if (file.exists()) file else null

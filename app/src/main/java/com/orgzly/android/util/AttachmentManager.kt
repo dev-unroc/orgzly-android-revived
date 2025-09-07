@@ -35,9 +35,34 @@ object AttachmentManager {
 
     /**
      * Get the attachment directory for a specific note.
-     * Creates directory structure: book-dir/attachments/{note-id}/
+     * Creates directory structure compatible with Doom Emacs:
+     * book-dir/attachments/{first-two-chars}/{note-id}/
+     * e.g., attachments/ca/effd7f-f678-486b-8ffa-7bac167f4e71/
      */
     fun getNoteAttachmentDir(bookFile: File, noteId: String): File {
+        val baseDir = getBookAttachmentBaseDir(bookFile)
+        // Use hierarchical structure like Doom Emacs: first 2 chars of first segment as subdirectory
+        // For UUID caeffd7f-f678-486b-8ffa-7bac167f4e71, use "ca" and "effd7f-f678-486b-8ffa-7bac167f4e71"
+        val segments = noteId.lowercase().split("-")
+        val prefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
+            segments[0].take(2)
+        } else {
+            noteId.lowercase().take(2)
+        }
+        val shortenedId = if (segments.isNotEmpty() && segments[0].length > 2) {
+            segments[0].drop(2) + if (segments.size > 1) "-" + segments.drop(1).joinToString("-") else ""
+        } else {
+            noteId.lowercase()
+        }
+        val hierarchicalDir = File(baseDir, prefix)
+        return File(hierarchicalDir, shortenedId)
+    }
+
+    /**
+     * Get the legacy (flat) attachment directory for backward compatibility.
+     * Returns: book-dir/attachments/{note-id}/
+     */
+    fun getLegacyNoteAttachmentDir(bookFile: File, noteId: String): File {
         val baseDir = getBookAttachmentBaseDir(bookFile)
         return File(baseDir, noteId)
     }
@@ -55,11 +80,11 @@ object AttachmentManager {
 
     /**
      * Generate a UUID for a new note if it doesn't have one.
-     * This follows org-mode's ID property convention.
+     * This follows org-mode's ID property convention (lowercase for Doom Emacs compatibility).
      */
     @JvmStatic
     fun generateNoteId(): String {
-        return UUID.randomUUID().toString().uppercase()
+        return UUID.randomUUID().toString().lowercase()
     }
 
     /**
@@ -149,6 +174,7 @@ object AttachmentManager {
     /**
      * Resolve an attachment link to an actual file.
      * Handles both "attachment:filename" and direct "attachments/" paths.
+     * Supports both hierarchical (Doom Emacs) and legacy flat directory structures.
      */
     fun resolveAttachmentLink(
         bookFile: File,
@@ -164,16 +190,36 @@ object AttachmentManager {
                 // Handle [[attachment:filename.ext]] format
                 val filename = attachmentPath.substring("attachment:".length)
                 if (noteId != null) {
-                    val attachmentDir = getNoteAttachmentDir(bookFile, noteId)
-                    val file = File(attachmentDir, filename)
-                    if (file.exists()) file else null
+                    // First try hierarchical structure (Doom Emacs compatible)
+                    val hierarchicalDir = getNoteAttachmentDir(bookFile, noteId)
+                    val hierarchicalFile = File(hierarchicalDir, filename)
+                    if (hierarchicalFile.exists()) {
+                        if (BuildConfig.LOG_DEBUG) {
+                            LogUtils.d(TAG, "Found attachment in hierarchical structure: ${hierarchicalFile.absolutePath}")
+                        }
+                        return hierarchicalFile
+                    }
+                    
+                    // Fallback to legacy flat structure for backward compatibility
+                    val legacyDir = getLegacyNoteAttachmentDir(bookFile, noteId)
+                    val legacyFile = File(legacyDir, filename)
+                    if (legacyFile.exists()) {
+                        if (BuildConfig.LOG_DEBUG) {
+                            LogUtils.d(TAG, "Found attachment in legacy flat structure: ${legacyFile.absolutePath}")
+                        }
+                        return legacyFile
+                    }
+                    
+                    if (BuildConfig.LOG_DEBUG) {
+                        LogUtils.d(TAG, "Attachment not found in either structure: $filename")
+                    }
+                    return null
                 } else {
                     null
                 }
             }
-            // attachmentPath.contains("/attachments/") || attachmentPath.contains("/.attach/") -> {
             attachmentPath.contains("/attachments/") -> {
-                // Handle direct attachment paths like ./attachments/id/filename.ext or ./attachments/id/filename.ext
+                // Handle direct attachment paths like ./attachments/ca/id/filename.ext or ./attachments/id/filename.ext
                 val bookDir = bookFile.parentFile ?: return null
                 val file = File(bookDir, attachmentPath)
                 if (file.exists()) file else null
@@ -199,15 +245,30 @@ object AttachmentManager {
 
     /**
      * List all attachments for a note.
-     * Returns list of files in the note's attachment directory.
+     * Returns list of files from both hierarchical and legacy directory structures.
      */
     fun getNoteAttachments(bookFile: File, noteId: String): List<File> {
-        val attachmentDir = getNoteAttachmentDir(bookFile, noteId)
-        return if (attachmentDir.exists() && attachmentDir.isDirectory) {
-            attachmentDir.listFiles()?.toList() ?: emptyList()
-        } else {
-            emptyList()
+        val attachments = mutableListOf<File>()
+        
+        // Check hierarchical structure first (Doom Emacs compatible)
+        val hierarchicalDir = getNoteAttachmentDir(bookFile, noteId)
+        if (hierarchicalDir.exists() && hierarchicalDir.isDirectory) {
+            hierarchicalDir.listFiles()?.let { files ->
+                attachments.addAll(files.filter { it.isFile })
+            }
         }
+        
+        // Check legacy flat structure for backward compatibility
+        val legacyDir = getLegacyNoteAttachmentDir(bookFile, noteId)
+        if (legacyDir.exists() && legacyDir.isDirectory) {
+            legacyDir.listFiles()?.let { files ->
+                // Only add files that aren't already in the list (avoid duplicates)
+                files.filter { it.isFile && !attachments.any { existing -> existing.name == it.name } }
+                    .let { uniqueFiles -> attachments.addAll(uniqueFiles) }
+            }
+        }
+        
+        return attachments
     }
 
     /**

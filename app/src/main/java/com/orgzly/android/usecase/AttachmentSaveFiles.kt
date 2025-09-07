@@ -98,9 +98,9 @@ class AttachmentSaveFiles(
                 LogUtils.d(TAG, "Filename unchanged, no content update needed")
             }
 
-            // Add ID property to note if not present
-            LogUtils.d(TAG, "Ensuring note has ID property")
-            val noteWithId = ensureNoteHasIdProperty(dataRepository, noteId, note, noteIdProperty)
+            // Add ID property and ATTACH tag to note if not present
+            LogUtils.d(TAG, "Ensuring note has ID property and ATTACH tag")
+            val noteWithId = ensureNoteHasIdPropertyAndAttachTag(dataRepository, noteId, note, noteIdProperty)
 
             LogUtils.d(TAG, "Attachment save completed successfully")
             UseCaseResult(
@@ -138,9 +138,28 @@ class AttachmentSaveFiles(
         
         LogUtils.d(TAG, "Attachment root directory: ${attachRootDir.uri}")
         
-        // Create or find note-specific attachment directory
-        val noteAttachDir = attachRootDir.findFile(noteIdProperty)
-            ?: attachRootDir.createDirectory(noteIdProperty)
+        // Create or find hierarchical attachment directory (Doom Emacs compatible)
+        // For UUID caeffd7f-f678-486b-8ffa-7bac167f4e71, use "ca" and "effd7f-f678-486b-8ffa-7bac167f4e71"
+        val segments = noteIdProperty.lowercase().split("-")
+        val noteIdPrefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
+            segments[0].take(2)
+        } else {
+            noteIdProperty.lowercase().take(2)
+        }
+        val shortenedId = if (segments.isNotEmpty() && segments[0].length > 2) {
+            segments[0].drop(2) + if (segments.size > 1) "-" + segments.drop(1).joinToString("-") else ""
+        } else {
+            noteIdProperty.lowercase()
+        }
+        
+        // First, get or create the prefix subdirectory
+        val prefixDir = attachRootDir.findFile(noteIdPrefix)
+            ?: attachRootDir.createDirectory(noteIdPrefix)
+            ?: throw IllegalStateException("Cannot create prefix attachment directory")
+        
+        // Then create the note-specific directory within the prefix directory
+        val noteAttachDir = prefixDir.findFile(shortenedId)
+            ?: prefixDir.createDirectory(shortenedId)
             ?: throw IllegalStateException("Cannot create note attachment directory")
         
         LogUtils.d(TAG, "Note attachment directory: ${noteAttachDir.uri}")
@@ -192,7 +211,7 @@ class AttachmentSaveFiles(
             .let { URLDecoder.decode(it, "UTF-8") }
             .let { if (it.startsWith(":")) it.substring(1) else it }
         
-        val attachmentPath = "/storage/emulated/0/$repoPath/attachments/$noteIdProperty/$originalFilename"
+        val attachmentPath = "/storage/emulated/0/$repoPath/attachments/$noteIdPrefix/$shortenedId/$originalFilename"
         
         // Verify the file was created and get its properties
         try {
@@ -294,53 +313,32 @@ class AttachmentSaveFiles(
     }
 
     /**
-     * Ensure the note has an ID property in its content for attachment resolution.
+     * Ensure the note has an ID property and ATTACH tag for Doom Emacs compatibility.
      */
-    private fun ensureNoteHasIdProperty(
+    private fun ensureNoteHasIdPropertyAndAttachTag(
         dataRepository: DataRepository,
         noteId: Long,
         note: Note,
         idValue: String
     ): Note {
-        LogUtils.d(TAG, "Checking if note has ID property, idValue: $idValue")
+        LogUtils.d(TAG, "Checking if note has ID property and ATTACH tag, idValue: $idValue")
         val content = note.content ?: ""
         LogUtils.d(TAG, "Current note content: '$content'")
         
-        // Check if ID property already exists
-        if (content.contains(":ID:")) {
-            LogUtils.d(TAG, "Note already has ID property, no changes needed")
+        // Check if both ID property and ATTACH tag already exist
+        val hasIdProperty = content.contains(":ID:")
+        val hasAttachTag = content.contains(":ATTACH:")
+        
+        if (hasIdProperty && hasAttachTag) {
+            LogUtils.d(TAG, "Note already has ID property and ATTACH tag, no changes needed")
             return note
         }
         
-        LogUtils.d(TAG, "Note missing ID property, adding it")
+        LogUtils.d(TAG, "Note missing ID property or ATTACH tag, updating it")
 
-        // Add ID property to the note
+        // Add ID property and ATTACH tag to the note
         val lines = content.split("\n").toMutableList()
-        val propertiesStart = lines.indexOfFirst { it.trim() == ":PROPERTIES:" }
-        LogUtils.d(TAG, "Properties start index: $propertiesStart")
-        
-        val updatedContent = if (propertiesStart >= 0) {
-            LogUtils.d(TAG, "Found existing properties block, adding ID to it")
-            // Properties block exists, add ID property
-            val propertiesEnd = lines.subList(propertiesStart + 1, lines.size)
-                .indexOfFirst { it.trim() == ":END:" } + propertiesStart + 1
-            LogUtils.d(TAG, "Properties end index: $propertiesEnd")
-            
-            if (propertiesEnd > propertiesStart) {
-                lines.add(propertiesEnd, ":ID: $idValue")
-                val result = lines.joinToString("\n")
-                LogUtils.d(TAG, "Added ID to existing properties block")
-                result
-            } else {
-                Log.w(TAG, "Malformed properties block found, creating new one")
-                // Malformed properties block, add new one
-                addNewPropertiesBlock(lines, idValue, context, sharedFileUri!!)
-            }
-        } else {
-            LogUtils.d(TAG, "No properties block found, creating new one")
-            // No properties block, add new one
-            addNewPropertiesBlock(lines, idValue, context, sharedFileUri!!)
-        }
+        val updatedContent = addIdPropertyAndAttachTag(lines, idValue, hasIdProperty, hasAttachTag)
 
         // Update note content
         LogUtils.d(TAG, "Updating note content with ID property")
@@ -355,24 +353,94 @@ class AttachmentSaveFiles(
         
         return note.copy(content = updatedContent)
     }
+    
+    /**
+     * Add ID property and ATTACH tag to note content.
+     */
+    private fun addIdPropertyAndAttachTag(
+        lines: MutableList<String>, 
+        idValue: String, 
+        hasIdProperty: Boolean, 
+        hasAttachTag: Boolean
+    ): String {
+        val propertiesStart = lines.indexOfFirst { it.trim() == ":PROPERTIES:" }
+        LogUtils.d(TAG, "Properties start index: $propertiesStart")
+        
+        return if (propertiesStart >= 0) {
+            LogUtils.d(TAG, "Found existing properties block")
+            // Properties block exists, add missing properties
+            val propertiesEnd = lines.subList(propertiesStart + 1, lines.size)
+                .indexOfFirst { it.trim() == ":END:" } + propertiesStart + 1
+            LogUtils.d(TAG, "Properties end index: $propertiesEnd")
+            
+            if (propertiesEnd > propertiesStart) {
+                // Add ID property if missing
+                if (!hasIdProperty) {
+                    lines.add(propertiesEnd, ":ID: $idValue")
+                    LogUtils.d(TAG, "Added ID to existing properties block")
+                }
+                
+                // Add ATTACH tag if missing (add to the heading line)
+                if (!hasAttachTag) {
+                    addAttachTagToHeading(lines)
+                }
+                
+                lines.joinToString("\n")
+            } else {
+                Log.w(TAG, "Malformed properties block found, creating new one")
+                // Malformed properties block, add new one
+                addNewPropertiesBlockWithAttachTag(lines, idValue)
+            }
+        } else {
+            LogUtils.d(TAG, "No properties block found, creating new one")
+            // No properties block, add new one
+            addNewPropertiesBlockWithAttachTag(lines, idValue)
+        }
+    }
+    
+    /**
+     * Add :ATTACH: tag to the heading line.
+     */
+    private fun addAttachTagToHeading(lines: MutableList<String>) {
+        // Find the first heading line (starts with *)
+        val headingIndex = lines.indexOfFirst { it.trim().startsWith("*") }
+        if (headingIndex >= 0) {
+            val headingLine = lines[headingIndex]
+            if (!headingLine.contains(":ATTACH:")) {
+                // Add :ATTACH: tag to the heading
+                val trimmed = headingLine.trim()
+                val updatedHeading = if (trimmed.contains(":")) {
+                    // Already has tags, add ATTACH
+                    trimmed.replace(":$".toRegex(), ":ATTACH:")
+                } else {
+                    // No tags yet, add ATTACH tag
+                    "$trimmed :ATTACH:"
+                }
+                lines[headingIndex] = updatedHeading
+                LogUtils.d(TAG, "Added ATTACH tag to heading: $updatedHeading")
+            }
+        } else {
+            LogUtils.d(TAG, "No heading found to add ATTACH tag to")
+        }
+    }
 
-    private fun addNewPropertiesBlock(lines: MutableList<String>, idValue: String, context: Context, sharedFileUri: Uri): String {
-        LogUtils.d(TAG, "Adding new properties block with ${lines.size} existing lines")
+    private fun addNewPropertiesBlockWithAttachTag(lines: MutableList<String>, idValue: String): String {
+        LogUtils.d(TAG, "Adding new properties block with ATTACH tag and ${lines.size} existing lines")
         
         // For org-mode format, we need to understand the current structure
         // The note content might be just the attachment link without a proper heading
         // We need to create a proper org-mode structure
         
-        if (lines.isEmpty() || (lines.size == 1 && lines[0].startsWith("[[") && lines[0].endsWith("]]"))) {
+        val isSingleAttachmentLink = lines.size == 1 && lines[0].startsWith("[[") && lines[0].endsWith("]]")
+        if (lines.isEmpty() || isSingleAttachmentLink) {
             LogUtils.d(TAG, "Note appears to be just an attachment link, restructuring as org-mode note")
             
             // Current content is just an attachment link, we need to restructure it
             val attachmentLink = if (lines.isNotEmpty()) lines[0] else ""
             lines.clear()
             
-            // Create proper org-mode structure: heading, properties, content
-            val filename = AttachmentManager.getFileNameFromUri(context, sharedFileUri)
-            lines.add("* $filename") // Use filename as heading
+            // Create proper org-mode structure: heading with ATTACH tag, properties, content
+            lines.add("* Attachment :ATTACH:") // Add heading with ATTACH tag
             lines.add(":PROPERTIES:")
             lines.add(":ID: $idValue")
             lines.add(":END:")
@@ -383,10 +451,24 @@ class AttachmentSaveFiles(
             // Find proper insertion point for properties
             val insertIndex = if (lines.isNotEmpty() && lines[0].startsWith("*")) {
                 LogUtils.d(TAG, "Found heading line, inserting properties after it")
+                // Add ATTACH tag to existing heading if not present
+                val headingLine = lines[0]
+                if (!headingLine.contains(":ATTACH:")) {
+                    val trimmed = headingLine.trim()
+                    val updatedHeading = if (trimmed.contains(":")) {
+                        // Already has tags, add ATTACH
+                        trimmed.replace(":$".toRegex(), ":ATTACH:")
+                    } else {
+                        // No tags yet, add ATTACH tag
+                        "$trimmed :ATTACH:"
+                    }
+                    lines[0] = updatedHeading
+                }
                 1 // After heading
             } else {
-                LogUtils.d(TAG, "No heading found, inserting at beginning")
-                0
+                LogUtils.d(TAG, "No heading found, creating one with ATTACH tag")
+                lines.add(0, "* Note :ATTACH:")
+                1
             }
             
             LogUtils.d(TAG, "Inserting properties block at index $insertIndex")
@@ -396,8 +478,14 @@ class AttachmentSaveFiles(
         }
         
         val result = lines.joinToString("\n")
-        LogUtils.d(TAG, "Properties block added, new content: '$result'")
+        LogUtils.d(TAG, "Properties block with ATTACH tag added, new content: '$result'")
         return result
+    }
+    
+    // Keep the old method for backward compatibility but update it to use the new one
+    private fun addNewPropertiesBlock(lines: MutableList<String>, idValue: String, context: Context, sharedFileUri: Uri): String {
+        // Delegate to the new method that includes ATTACH tag support
+        return addNewPropertiesBlockWithAttachTag(lines, idValue)
     }
     
     /**

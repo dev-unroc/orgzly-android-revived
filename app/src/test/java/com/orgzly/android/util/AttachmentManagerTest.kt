@@ -48,8 +48,8 @@ class AttachmentManagerTest : OrgzlyTest() {
         
         assertNotNull(noteId)
         assertTrue("Note ID should be non-empty", noteId.isNotEmpty())
-        assertTrue("Note ID should be uppercase UUID format", 
-            noteId.matches(Regex("[A-F0-9]{8}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{4}-[A-F0-9]{12}")))
+        assertTrue("Note ID should be lowercase UUID format", 
+            noteId.matches(Regex("[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}")))
     }
 
     @Test
@@ -65,21 +65,36 @@ class AttachmentManagerTest : OrgzlyTest() {
         val noteId = "12345678-1234-1234-1234-123456789012"
         val noteDir = AttachmentManager.getNoteAttachmentDir(testBookFile, noteId)
         
-        assertEquals(File(testAttachmentDir, noteId), noteDir)
+        // Should use hierarchical structure (first 2 chars of first segment as subdirectory)
+        // For "12345678-1234-1234-1234-123456789012", use "12" and "345678-1234-1234-1234-123456789012"
+        val expectedDir = File(File(testAttachmentDir, "12"), "345678-1234-1234-1234-123456789012")
+        assertEquals(expectedDir, noteDir)
+    }
+    
+    @Test
+    fun testGetLegacyNoteAttachmentDir() {
+        val noteId = "12345678-1234-1234-1234-123456789012"
+        val legacyDir = AttachmentManager.getLegacyNoteAttachmentDir(testBookFile, noteId)
+        
+        // Should use flat structure for backward compatibility
+        assertEquals(File(testAttachmentDir, noteId), legacyDir)
     }
 
     @Test
     fun testGetOrCreateNoteAttachmentDir() {
         val noteId = "12345678-1234-1234-1234-123456789012"
         
-        // Should create the directory if it doesn't exist
+        // Should create the hierarchical directory structure if it doesn't exist
         assertFalse("Attachment dir should not exist initially", testAttachmentDir.exists())
         
         val noteDir = AttachmentManager.getOrCreateNoteAttachmentDir(testBookFile, noteId)
         
         assertTrue("Note attachment dir should be created", noteDir.exists())
         assertTrue("Note attachment dir should be a directory", noteDir.isDirectory())
-        assertEquals(File(testAttachmentDir, noteId), noteDir)
+        // Should use hierarchical structure (first 2 chars of first segment as subdirectory)
+        // For "12345678-1234-1234-1234-123456789012", use "12" and "345678-1234-1234-1234-123456789012"
+        val expectedDir = File(File(testAttachmentDir, "12"), "345678-1234-1234-1234-123456789012")
+        assertEquals(expectedDir, noteDir)
     }
 
     @Test
@@ -100,23 +115,49 @@ class AttachmentManagerTest : OrgzlyTest() {
         val noteId = "12345678-1234-1234-1234-123456789012"
         val noteDir = AttachmentManager.getOrCreateNoteAttachmentDir(testBookFile, noteId)
         
-        // Create a test attachment file
+        // Create a test attachment file in hierarchical structure
         val testFile = File(noteDir, "test-image.jpg")
         testFile.writeText("fake image content")
         
-        // Test attachment: format
+        // Test attachment: format should find file in hierarchical structure
         val resolvedFile = AttachmentManager.resolveAttachmentLink(
             testBookFile, noteId, "attachment:test-image.jpg")
         
         assertNotNull("Should resolve attachment link", resolvedFile)
         assertEquals(testFile, resolvedFile)
         
-        // Test direct attachments/ path
-        val directPath = "./attachments/$noteId/test-image.jpg"
+        // Test direct hierarchical attachments/ path
+        val directPath = "./attachments/12/345678-1234-1234-1234-123456789012/test-image.jpg"
         val resolvedDirect = AttachmentManager.resolveAttachmentLink(
             testBookFile, noteId, directPath)
             
-        assertNotNull("Should resolve direct attach path", resolvedDirect)
+        assertNotNull("Should resolve direct hierarchical attach path", resolvedDirect)
+        assertEquals(testFile, resolvedDirect)
+    }
+    
+    @Test
+    fun testResolveAttachmentLinkBackwardCompatibility() {
+        val noteId = "12345678-1234-1234-1234-123456789012"
+        
+        // Create a test attachment file in legacy flat structure
+        val legacyDir = AttachmentManager.getLegacyNoteAttachmentDir(testBookFile, noteId)
+        legacyDir.mkdirs()
+        val testFile = File(legacyDir, "legacy-image.jpg")
+        testFile.writeText("fake legacy image content")
+        
+        // Should find file in legacy structure when hierarchical doesn't exist
+        val resolvedFile = AttachmentManager.resolveAttachmentLink(
+            testBookFile, noteId, "attachment:legacy-image.jpg")
+        
+        assertNotNull("Should resolve legacy attachment link", resolvedFile)
+        assertEquals(testFile, resolvedFile)
+        
+        // Test direct legacy attachments/ path
+        val directPath = "./attachments/$noteId/legacy-image.jpg"
+        val resolvedDirect = AttachmentManager.resolveAttachmentLink(
+            testBookFile, noteId, directPath)
+            
+        assertNotNull("Should resolve direct legacy attach path", resolvedDirect)
         assertEquals(testFile, resolvedDirect)
     }
 
@@ -156,22 +197,29 @@ class AttachmentManagerTest : OrgzlyTest() {
     @Test
     fun testGetNoteAttachments() {
         val noteId = "12345678-1234-1234-1234-123456789012"
-        val noteDir = AttachmentManager.getOrCreateNoteAttachmentDir(testBookFile, noteId)
         
         // Initially should be empty
         val emptyAttachments = AttachmentManager.getNoteAttachments(testBookFile, noteId)
         assertTrue("Should initially have no attachments", emptyAttachments.isEmpty())
         
-        // Create some test files
-        val file1 = File(noteDir, "image1.jpg")
-        val file2 = File(noteDir, "document.pdf")
+        // Create files in hierarchical structure
+        val hierarchicalDir = AttachmentManager.getOrCreateNoteAttachmentDir(testBookFile, noteId)
+        val file1 = File(hierarchicalDir, "image1.jpg")
+        val file2 = File(hierarchicalDir, "document.pdf")
         file1.writeText("fake image")
         file2.writeText("fake pdf")
         
+        // Create files in legacy structure  
+        val legacyDir = AttachmentManager.getLegacyNoteAttachmentDir(testBookFile, noteId)
+        legacyDir.mkdirs()
+        val file3 = File(legacyDir, "legacy.txt")
+        file3.writeText("legacy file")
+        
         val attachments = AttachmentManager.getNoteAttachments(testBookFile, noteId)
-        assertEquals("Should have 2 attachments", 2, attachments.size)
+        assertEquals("Should have 3 attachments from both structures", 3, attachments.size)
         assertTrue("Should contain image1.jpg", attachments.any { it.name == "image1.jpg" })
         assertTrue("Should contain document.pdf", attachments.any { it.name == "document.pdf" })
+        assertTrue("Should contain legacy.txt", attachments.any { it.name == "legacy.txt" })
     }
 
     @Test

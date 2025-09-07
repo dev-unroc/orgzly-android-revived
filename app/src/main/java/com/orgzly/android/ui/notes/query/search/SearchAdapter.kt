@@ -7,6 +7,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import androidx.recyclerview.widget.RecyclerView
+import com.orgzly.android.data.DataRepository
 import com.orgzly.android.db.entity.NoteView
 import com.orgzly.android.ui.OnViewHolderClickListener
 import com.orgzly.android.ui.SelectableItemAdapter
@@ -17,12 +18,13 @@ import com.orgzly.databinding.ItemHeadBinding
 
 class SearchAdapter(
         private val context: Context,
-        private val clickListener: OnViewHolderClickListener<NoteView>
+        private val clickListener: OnViewHolderClickListener<NoteView>,
+        private val dataRepository: DataRepository? = null
 ) :ListAdapter<NoteView, RecyclerView.ViewHolder>(DIFF_CALLBACK), SelectableItemAdapter {
 
     private val adapterSelection: Selection = Selection()
 
-    private val noteItemViewBinder: NoteItemViewBinder = NoteItemViewBinder(context, inBook = false)
+    private val noteItemViewBinder: NoteItemViewBinder = NoteItemViewBinder(context, inBook = false, dataRepository)
 
     private val viewHolderListener = object: NoteItemViewHolder.ClickListener {
         override fun onClick(view: View, position: Int) {

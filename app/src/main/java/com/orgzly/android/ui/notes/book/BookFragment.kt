@@ -145,7 +145,7 @@ class BookFragment :
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, savedInstanceState)
 
-        viewAdapter = BookAdapter(mBookId, binding.root.context, this, inBook = true).apply {
+        viewAdapter = BookAdapter(mBookId, binding.root.context, this, inBook = true, dataRepository).apply {
             setHasStableIds(true)
         }
 

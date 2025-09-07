@@ -34,6 +34,10 @@ object ImageLoader {
     @JvmOverloads
     fun loadImages(textWithMarkup: TextView, noteId: String? = null, bookFile: File? = null) {
         val context = textWithMarkup.context
+        
+        android.util.Log.d(TAG, "loadImages: Called with noteId=$noteId, bookFile=${bookFile?.absolutePath}")
+        android.util.Log.d(TAG, "loadImages: imagesEnabled=${AppPreferences.imagesEnabled(context)}")
+        android.util.Log.d(TAG, "loadImages: externalFilesPermission=${AppPermissions.isGranted(context, AppPermissions.Usage.EXTERNAL_FILES_ACCESS)}")
 
         // Only if AppPreferences.displayImages(context) is true
         // Setup image visualization inside the note
@@ -41,15 +45,33 @@ object ImageLoader {
                 // Storage permission has been granted
                 && AppPermissions.isGranted(context, AppPermissions.Usage.EXTERNAL_FILES_ACCESS)) {
             
-            // Load images for FileLinkSpan (regular file links)
+            android.util.Log.d(TAG, "loadImages: Conditions met, scanning for image links")
+            
+            // Count spans
+            val fileLinkSpans = mutableListOf<FileLinkSpan>()
+            val attachmentLinkSpans = mutableListOf<AttachmentLinkSpan>()
+            
             SpanUtils.forEachSpan(textWithMarkup.text as Spannable, FileLinkSpan::class.java) { span, _, _ ->
+                fileLinkSpans.add(span)
+            }
+            
+            SpanUtils.forEachSpan(textWithMarkup.text as Spannable, AttachmentLinkSpan::class.java) { span, _, _ ->
+                attachmentLinkSpans.add(span)
+            }
+            
+            android.util.Log.d(TAG, "loadImages: Found ${fileLinkSpans.size} FileLinkSpan(s) and ${attachmentLinkSpans.size} AttachmentLinkSpan(s)")
+            
+            // Load images for FileLinkSpan (regular file links)
+            for (span in fileLinkSpans) {
                 loadImageFromFileLink(textWithMarkup, span, noteId, bookFile)
             }
             
             // Load images for AttachmentLinkSpan (attachment links)
-            SpanUtils.forEachSpan(textWithMarkup.text as Spannable, AttachmentLinkSpan::class.java) { span, _, _ ->
+            for (span in attachmentLinkSpans) {
                 loadImageFromAttachmentLink(textWithMarkup, span, noteId, bookFile)
             }
+        } else {
+            android.util.Log.d(TAG, "loadImages: Conditions not met - images disabled or no permission")
         }
     }
 
@@ -78,18 +100,27 @@ object ImageLoader {
 
     private fun loadImageFromAttachmentLink(textWithMarkup: TextView, attachmentSpan: AttachmentLinkSpan, noteId: String?, bookFile: File?) {
         val filename = attachmentSpan.filename
+        
+        android.util.Log.d(TAG, "loadImageFromAttachmentLink: Processing attachment $filename")
+        android.util.Log.d(TAG, "loadImageFromAttachmentLink: isImageFile=${AttachmentManager.isImageFile(filename)}")
+        android.util.Log.d(TAG, "loadImageFromAttachmentLink: noteId=$noteId, bookFile=${bookFile?.absolutePath}")
 
         if (AttachmentManager.isImageFile(filename)) {
             if (noteId != null && bookFile != null) {
+                android.util.Log.d(TAG, "loadImageFromAttachmentLink: Resolving attachment link for $filename")
                 val attachmentFile = AttachmentManager.resolveAttachmentLink(bookFile, noteId, "attachment:$filename")
+                android.util.Log.d(TAG, "loadImageFromAttachmentLink: Resolved to: ${attachmentFile?.absolutePath ?: "null"}")
                 if (attachmentFile != null) {
+                    android.util.Log.d(TAG, "loadImageFromAttachmentLink: Loading image from file: ${attachmentFile.absolutePath}")
                     loadImageFromFile(textWithMarkup, attachmentFile, attachmentSpan)
                 } else {
-                    if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "Attachment file not found: $filename for note: $noteId")
+                    android.util.Log.d(TAG, "loadImageFromAttachmentLink: Attachment file not found: $filename for note: $noteId")
                 }
             } else {
-                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "Cannot resolve attachment without note ID and book file: $filename")
+                android.util.Log.d(TAG, "loadImageFromAttachmentLink: Cannot resolve attachment without note ID and book file: $filename")
             }
+        } else {
+            android.util.Log.d(TAG, "loadImageFromAttachmentLink: File is not an image: $filename")
         }
     }
 

@@ -556,10 +556,41 @@ public class ShareActivity extends CommonActivity
                 });
             } finally {
                 if (BuildConfig.LOG_DEBUG) {
-                    LogUtils.d(TAG, "Cleaning up attachment processing, finishing activity");
+                    LogUtils.d(TAG, "Cleaning up attachment processing");
                 }
                 mPendingAttachmentData = null;
-                App.EXECUTORS.mainThread().execute(this::finish);
+                
+                // Reload NoteFragment data so it can see the updated note with ID property
+                App.EXECUTORS.mainThread().execute(() -> {
+                    try {
+                        NoteFragment noteFragment = (NoteFragment) getSupportFragmentManager()
+                                .findFragmentByTag(NoteFragment.FRAGMENT_TAG);
+                        if (noteFragment != null) {
+                            if (BuildConfig.LOG_DEBUG) {
+                                LogUtils.d(TAG, "Reloading NoteFragment data after attachment processing");
+                            }
+                            noteFragment.reloadData();
+                            
+                            // Give the fragment some time to reload before finishing
+                            new android.os.Handler().postDelayed(() -> {
+                                if (BuildConfig.LOG_DEBUG) {
+                                    LogUtils.d(TAG, "Finishing activity after note reload");
+                                }
+                                finish();
+                            }, 500);
+                        } else {
+                            if (BuildConfig.LOG_DEBUG) {
+                                LogUtils.d(TAG, "NoteFragment not found, finishing activity immediately");
+                            }
+                            finish();
+                        }
+                    } catch (Exception e) {
+                        if (BuildConfig.LOG_DEBUG) {
+                            LogUtils.d(TAG, "Error reloading NoteFragment: " + e.getMessage());
+                        }
+                        finish();
+                    }
+                });
             }
         });
     }

@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.RecyclerView
 import com.orgzly.R
+import com.orgzly.android.data.DataRepository
 import com.orgzly.android.db.entity.Book
 import com.orgzly.android.db.entity.Note
 import com.orgzly.android.db.entity.NoteView
@@ -23,7 +24,8 @@ class BookAdapter(
     private val bookId: Long,
     private val context: Context,
     private val clickListener: OnClickListener,
-    private val inBook: Boolean
+    private val inBook: Boolean,
+    private val dataRepository: DataRepository? = null
 ) :
     ListAdapterWithHeaders<NoteView, RecyclerView.ViewHolder>(DIFF_CALLBACK, 1),
     SelectableItemAdapter {
@@ -32,7 +34,7 @@ class BookAdapter(
 
     private val adapterSelection = Selection()
 
-    private val noteItemViewBinder = NoteItemViewBinder(context, inBook)
+    private val noteItemViewBinder = NoteItemViewBinder(context, inBook, dataRepository)
     private val prefaceItemViewBinder = PrefaceItemViewBinder(context)
 
     private val noteViewHolderListener = object: NoteItemViewHolder.ClickListener {

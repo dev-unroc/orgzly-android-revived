@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.orgzly.R
+import com.orgzly.android.data.DataRepository
 import com.orgzly.android.ui.OnViewHolderClickListener
 import com.orgzly.android.ui.SelectableItemAdapter
 import com.orgzly.android.ui.Selection
@@ -20,14 +21,15 @@ import com.orgzly.databinding.ItemHeadBinding
 
 class AgendaAdapter(
         private val context: Context,
-        private val clickListener: OnViewHolderClickListener<AgendaItem>
+        private val clickListener: OnViewHolderClickListener<AgendaItem>,
+        private val dataRepository: DataRepository? = null
 ) : ListAdapter<AgendaItem, RecyclerView.ViewHolder>(DIFF_CALLBACK), SelectableItemAdapter, StickyHeaders {
 
     private val adapterSelection: Selection = Selection()
 
     private val userTimeFormatter = UserTimeFormatter(context)
 
-    private val noteViewBinder = NoteItemViewBinder(context, inBook = false)
+    private val noteViewBinder = NoteItemViewBinder(context, inBook = false, dataRepository)
 
     private val viewHolderListener = object: NoteItemViewHolder.ClickListener {
         override fun onClick(view: View, position: Int) {

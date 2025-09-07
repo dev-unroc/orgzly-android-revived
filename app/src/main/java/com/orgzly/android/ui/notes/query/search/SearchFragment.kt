@@ -74,7 +74,7 @@ class SearchFragment : QueryFragment(), OnViewHolderClickListener<NoteView> {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, savedInstanceState)
 
-        viewAdapter = SearchAdapter(binding.root.context, this)
+        viewAdapter = SearchAdapter(binding.root.context, this, dataRepository)
         viewAdapter.setHasStableIds(true)
 
         // Restores selection, requires adapter

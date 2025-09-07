@@ -23,7 +23,9 @@ import com.orgzly.android.usecase.NoteCreate
 import com.orgzly.android.usecase.NoteDelete
 import com.orgzly.android.usecase.NoteUpdate
 import com.orgzly.android.usecase.UseCaseRunner
+import com.orgzly.android.util.LogUtils
 import com.orgzly.android.util.MiscUtils
+import com.orgzly.BuildConfig
 import com.orgzly.org.OrgProperties
 import com.orgzly.org.datetime.OrgRange
 import com.orgzly.org.parser.OrgParserWriter
@@ -42,7 +44,7 @@ class NoteViewModel(
 
     var bookId = initialData.bookId
     var noteId = initialData.noteId
-    private val place = initialData.place
+    private var place = initialData.place
     private val title = initialData.title
     private val content = initialData.content
 
@@ -69,6 +71,8 @@ class NoteViewModel(
 
     fun loadData() {
         App.EXECUTORS.diskIO().execute {
+            if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: noteId=$noteId, place=$place, isNew()=${isNew()}")
+            
             val book = dataRepository.getBookView(bookId)
 
             val note = dataRepository.getNoteView(noteId)
@@ -81,8 +85,10 @@ class NoteViewModel(
             }
 
             notePayload = if (isNew()) {
+                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Creating new payload with title='${title.orEmpty()}', content='$content'")
                 NoteBuilder.newPayload(App.getAppContext(), title.orEmpty(), content)
             } else {
+                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Loading existing payload from database for noteId=$noteId")
                 dataRepository.getNotePayload(noteId)
             }
 
@@ -183,6 +189,9 @@ class NoteViewModel(
 
                     // Update note ID after creating note
                     noteId = note.id
+                    
+                    // Clear place to transition from "new note" to "existing note" mode
+                    place = null
 
                     if (postSave != null) {
                         postSave(note)
@@ -303,5 +312,6 @@ class NoteViewModel(
     }
 
     companion object {
+        private val TAG = NoteViewModel::class.java.name
     }
 }

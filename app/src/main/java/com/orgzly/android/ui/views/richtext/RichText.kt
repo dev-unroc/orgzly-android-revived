@@ -36,9 +36,21 @@ class RichText(context: Context, attrs: AttributeSet?) :
         var onUserTextChange: OnUserTextChangeListener? = null)
 
     private val listeners = Listeners()
+    
+    // Context for attachment/image resolution
+    private var noteId: String? = null
+    private var bookFile: java.io.File? = null
 
     fun setOnUserTextChangeListener(listener: OnUserTextChangeListener) {
         listeners.onUserTextChange = listener
+    }
+    
+    /**
+     * Set the note context for attachment and image resolution.
+     */
+    fun setNoteContext(noteId: String?, bookFile: java.io.File?) {
+        this.noteId = noteId
+        this.bookFile = bookFile
     }
 
     private val sourceBackgroundColor: Int by lazy {
@@ -209,7 +221,8 @@ class RichText(context: Context, attrs: AttributeSet?) :
 
             richTextView.setText(parsed, TextView.BufferType.SPANNABLE)
 
-            ImageLoader.loadImages(richTextView)
+            // Pass note context for attachment image resolution
+            ImageLoader.loadImages(richTextView, noteId, bookFile)
 
         } else {
             richTextView.text = null

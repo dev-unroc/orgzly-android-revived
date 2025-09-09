@@ -13,6 +13,7 @@ import com.orgzly.android.db.entity.Note
 import com.orgzly.android.prefs.AppPreferences
 import com.orgzly.android.util.AttachmentManager
 import com.orgzly.android.util.LogUtils
+import com.orgzly.android.LocalStorage
 import java.io.File
 import java.net.URLDecoder
 
@@ -32,6 +33,46 @@ class AttachmentSaveFiles(
     
     companion object {
         private const val TAG = "AttachmentSaveFiles"
+        
+        /**
+         * Resolve the filesystem path for a repository URI.
+         * This works for Document-based repositories and File-based repositories.
+         */
+        private fun resolveRepositoryFilesystemPath(repoUri: Uri): String? {
+            return when (repoUri.scheme) {
+                "content" -> {
+                    when {
+                        repoUri.toString().startsWith("content://com.android.externalstorage.documents/tree/primary") -> {
+                            // Handle external storage document URIs
+                            val path = repoUri.toString()
+                                .removePrefix("content://com.android.externalstorage.documents/tree/primary")
+                                .let { URLDecoder.decode(it, "UTF-8") }
+                                .let { if (it.startsWith(":")) it.substring(1) else it }
+                            
+                            // Use LocalStorage to get the proper base external storage path
+                            val baseStorage = LocalStorage.storage(App.getAppContext())
+                            if (path.isNotEmpty()) {
+                                "$baseStorage/$path"
+                            } else {
+                                baseStorage
+                            }
+                        }
+                        else -> {
+                            // Other content URIs - cannot resolve to filesystem path
+                            null
+                        }
+                    }
+                }
+                "file" -> {
+                    // File-based repositories
+                    repoUri.path
+                }
+                else -> {
+                    // Unknown scheme
+                    null
+                }
+            }
+        }
     }
 
     override fun run(dataRepository: DataRepository): UseCaseResult {
@@ -201,13 +242,11 @@ class AttachmentSaveFiles(
             throw e
         }
         
-        // Calculate the expected file system path first
-        val repoPath = repoUri.toString()
-            .removePrefix("content://com.android.externalstorage.documents/tree/primary")
-            .let { URLDecoder.decode(it, "UTF-8") }
-            .let { if (it.startsWith(":")) it.substring(1) else it }
+        // Calculate the expected file system path using proper repository path resolution
+        val repoPath = resolveRepositoryFilesystemPath(repoUri)
+            ?: throw IllegalStateException("Cannot resolve repository filesystem path for $repoUri")
         
-        val attachmentPath = "/storage/emulated/0/$repoPath/attachments/$noteIdPrefix/$shortenedId/$originalFilename"
+        val attachmentPath = "$repoPath/attachments/$noteIdPrefix/$shortenedId/$originalFilename"
         
         // Verify the file was created and get its properties
         try {

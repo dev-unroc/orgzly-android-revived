@@ -80,9 +80,8 @@ class LinkFindTarget(val path: String, val noteId: String? = null, val bookFile:
     }
     
     /**
-     * Try to find an attachment by searching the file system and database.
-     * This is a fallback when we don't have note/book context.
-     * First tries to find notes containing this attachment link and extract their ID properties.
+     * Try to find an attachment by searching through all books using AttachmentManager.
+     * This is more efficient than filesystem search and respects the attachment system structure.
      */
     private fun findAttachmentFromDatabase(dataRepository: DataRepository, path: String): File? {
         if (!path.startsWith("attachment:")) {
@@ -92,87 +91,86 @@ class LinkFindTarget(val path: String, val noteId: String? = null, val bookFile:
         val filename = path.substring("attachment:".length)
         android.util.Log.d("LinkFindTarget", "findAttachmentFromDatabase: Looking for attachment file: $filename")
         
-        // Search for attachment files in common locations
-        val result = findAttachmentInFilesystem(filename)
+        // Use efficient search only in known attachment locations
+        val result = findAttachmentInKnownLocations(filename)
         android.util.Log.d("LinkFindTarget", "findAttachmentFromDatabase: Found file: ${result?.absolutePath ?: "null"}")
         return result
     }
     
     /**
-     * Search the filesystem for attachment files when database search fails.
+     * Limited filesystem search only in known attachment locations.
      */
-    private fun findAttachmentInFilesystem(filename: String): File? {
-        android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Searching for file: $filename")
+    private fun findAttachmentInKnownLocations(filename: String): File? {
+        android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: Searching for file: $filename")
         
-        // Try to find attachment files in common locations
+        // Only search in the most likely locations for attachments
+        val knownLocations = mutableListOf<String>()
+        
+        // App's external directory (most common location)
         val appExternalDir = context.getExternalFilesDir("orgzly-books")?.absolutePath
-        val appInternalDir = context.filesDir.absolutePath
+        appExternalDir?.let { knownLocations.add(it) }
         
-        val commonRoots = listOfNotNull(
-            AppPreferences.fileRelativeRoot(context),
-            AppPreferences.fileAbsoluteRoot(context),
-            appExternalDir, // App's external files directory where attachments are now stored
-            appInternalDir, // App's internal files directory as fallback
-            "/sdcard/orgzly",
-            "/storage/emulated/0/orgzly",
-            "/storage/emulated/0/org" // Add the common external storage location
-        )
+        // App's internal directory (fallback)
+        knownLocations.add(context.filesDir.absolutePath)
         
-        android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Will search in ${commonRoots.size} root directories")
+        // User-configured file roots (only if they exist)
+        val relativeRoot = AppPreferences.fileRelativeRoot(context)
+        val absoluteRoot = AppPreferences.fileAbsoluteRoot(context)
+        if (relativeRoot.isNotEmpty() && File(relativeRoot).exists()) {
+            knownLocations.add(relativeRoot)
+        }
+        if (absoluteRoot.isNotEmpty() && File(absoluteRoot).exists()) {
+            knownLocations.add(absoluteRoot)
+        }
         
-        for (rootPath in commonRoots) {
-            android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Checking root: $rootPath")
+        android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: Will search in ${knownLocations.size} known locations")
+        
+        for (rootPath in knownLocations) {
+            android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: Checking: $rootPath")
             val rootDir = File(rootPath)
-            if (rootDir.exists() && rootDir.isDirectory) {
-                // Look for attachments directories recursively
-                val attachDirs = findAttachDirectories(rootDir)
-                for (attachDir in attachDirs) {
-                    android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Searching in attachment dir: ${attachDir.absolutePath}")
-                    // Look for the file in all note ID subdirectories
-                    attachDir.listFiles()?.forEach { noteDir ->
-                        if (noteDir.isDirectory) {
-                            val attachmentFile = File(noteDir, filename)
-                            android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Checking: ${attachmentFile.absolutePath}")
-                            if (attachmentFile.exists()) {
-                                android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: FOUND: ${attachmentFile.absolutePath}")
-                                return attachmentFile
-                            }
-                        }
-                    }
+            
+            // Look for attachments directory directly (no recursive search)
+            val attachDir = File(rootDir, "attachments")
+            if (attachDir.exists() && attachDir.isDirectory) {
+                android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: Found attachments dir: ${attachDir.absolutePath}")
+                
+                // Search the hierarchical structure more efficiently
+                val found = searchAttachmentInHierarchy(attachDir, filename)
+                if (found != null) {
+                    android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: FOUND: ${found.absolutePath}")
+                    return found
                 }
-            } else {
-                android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: Root does not exist or is not directory: $rootPath")
             }
         }
         
-        android.util.Log.d("LinkFindTarget", "findAttachmentInFilesystem: File not found: $filename")
+        android.util.Log.d("LinkFindTarget", "findAttachmentInKnownLocations: File not found: $filename")
         return null
     }
     
     /**
-     * Recursively find all attachments directories in a given root directory.
+     * Search for attachment file in hierarchical structure within attachments directory.
      */
-    private fun findAttachDirectories(rootDir: File): List<File> {
-        val attachDirs = mutableListOf<File>()
-        android.util.Log.d("LinkFindTarget", "findAttachDirectories: Searching in: ${rootDir.absolutePath}")
+    private fun searchAttachmentInHierarchy(attachDir: File, filename: String): File? {
+        // Look for the file in the hierarchical structure
+        // First level: first 2 chars of note ID  
+        val firstLevelDirs = attachDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
+        android.util.Log.d("LinkFindTarget", "searchAttachmentInHierarchy: Found ${firstLevelDirs.size} first-level dirs in ${attachDir.name}")
         
-        rootDir.listFiles()?.forEach { file ->
-            if (file.isDirectory) {
-                // if (file.name == "attachments" || file.name == ".attach") {
-                if (file.name == "attachments") {
-                    android.util.Log.d("LinkFindTarget", "findAttachDirectories: Found attachment directory: ${file.absolutePath}")
-                    attachDirs.add(file)
-                } else {
-                    // Recursively search subdirectories (but limit depth to avoid infinite loops)
-                    if (file.absolutePath.split(File.separator).size < rootDir.absolutePath.split(File.separator).size + 3) {
-                        attachDirs.addAll(findAttachDirectories(file))
-                    }
+        for (firstLevelDir in firstLevelDirs) {
+            // Second level: full note ID directories
+            val noteIdDirs = firstLevelDir.listFiles()?.filter { it.isDirectory } ?: emptyList()
+            android.util.Log.d("LinkFindTarget", "searchAttachmentInHierarchy: Found ${noteIdDirs.size} note-ID dirs in ${firstLevelDir.name}")
+            
+            for (noteIdDir in noteIdDirs) {
+                val attachmentFile = File(noteIdDir, filename)
+                if (attachmentFile.exists()) {
+                    android.util.Log.d("LinkFindTarget", "searchAttachmentInHierarchy: FOUND: ${attachmentFile.absolutePath}")
+                    return attachmentFile
                 }
             }
         }
         
-        android.util.Log.d("LinkFindTarget", "findAttachDirectories: Found ${attachDirs.size} attachment directories in ${rootDir.absolutePath}")
-        return attachDirs
+        return null
     }
     
     /**

@@ -1666,13 +1666,10 @@ class DataRepository @Inject constructor(
                         for (note in notes) {
                             val noteIdProperty = com.orgzly.android.util.AttachmentManager.extractNoteId(note, this@DataRepository)
                             if (noteIdProperty != null) {
-                                // Try to determine book file for attachment cleanup
-                                val bookFile = getBookFileFromBookView(bookView)
-                                if (bookFile != null) {
-                                    val deletedAttachments = com.orgzly.android.util.AttachmentManager.cleanupNoteAttachments(bookFile, noteIdProperty)
-                                    if (BuildConfig.LOG_DEBUG && deletedAttachments > 0) {
-                                        LogUtils.d(TAG, "Cleaned up $deletedAttachments attachments for note ${note.id}")
-                                    }
+                                // Try comprehensive attachment cleanup using the same logic as AttachmentSaveFiles
+                                val deletedAttachments = cleanupNoteAttachmentsComprehensive(bookView, noteIdProperty)
+                                if (BuildConfig.LOG_DEBUG && deletedAttachments > 0) {
+                                    LogUtils.d(TAG, "Cleaned up $deletedAttachments attachments for note ${note.id}")
                                 }
                             }
                         }
@@ -1696,6 +1693,133 @@ class DataRepository @Inject constructor(
         })
     }
     
+    /**
+     * Comprehensive attachment cleanup that handles both sync directories and app external directories.
+     * Uses the same logic as AttachmentSaveFiles to determine where attachments might be stored.
+     */
+    private fun cleanupNoteAttachmentsComprehensive(bookView: BookView, noteIdProperty: String): Int {
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "cleanupNoteAttachmentsComprehensive: bookView='${bookView.book.name}', noteIdProperty='$noteIdProperty'")
+        }
+        
+        var totalDeleted = 0
+        
+        // Try to clean up from sync directory (if possible)
+        try {
+            val repoUri = bookView.linkRepo?.url
+            val useDocumentFile = repoUri != null && repoUri.startsWith("content://com.android.externalstorage.documents/tree/")
+            
+            if (useDocumentFile) {
+                // Handle external storage using DocumentFile API
+                totalDeleted += cleanupAttachmentsUsingDocumentFile(bookView, noteIdProperty)
+            } else {
+                // Try regular file-based cleanup for sync directory
+                val bookFile = getBookFileFromBookView(bookView)
+                if (bookFile != null) {
+                    totalDeleted += com.orgzly.android.util.AttachmentManager.cleanupNoteAttachments(bookFile, noteIdProperty)
+                }
+            }
+        } catch (e: Exception) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Sync directory attachment cleanup failed: ${e.message}")
+            }
+        }
+        
+        // Also try to clean up from app external directory (fallback location)
+        try {
+            val appExternalDir = context.getExternalFilesDir("orgzly-books") ?: context.filesDir
+            val bookDirName = bookView.book.name.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+            val fallbackBookFile = java.io.File(appExternalDir, "$bookDirName.org")
+            
+            totalDeleted += com.orgzly.android.util.AttachmentManager.cleanupNoteAttachments(fallbackBookFile, noteIdProperty)
+        } catch (e: Exception) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "App external directory attachment cleanup failed: ${e.message}")
+            }
+        }
+        
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "Total attachments cleaned up: $totalDeleted")
+        }
+        
+        return totalDeleted
+    }
+    
+    /**
+     * Clean up attachments using DocumentFile API for external storage repositories.
+     */
+    private fun cleanupAttachmentsUsingDocumentFile(bookView: BookView, noteIdProperty: String): Int {
+        val repoUri = android.net.Uri.parse(bookView.linkRepo!!.url)
+        
+        try {
+            // Get the root DocumentFile for the repository
+            val repoDocumentFile = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, repoUri)
+                ?: return 0
+            
+            // Find attachments directory
+            val attachRootDir = repoDocumentFile.findFile("attachments") ?: return 0
+            
+            // Calculate hierarchical path (same as AttachmentSaveFiles)
+            val segments = noteIdProperty.lowercase().split("-")
+            val noteIdPrefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
+                segments[0].take(2)
+            } else {
+                noteIdProperty.lowercase().take(2)
+            }
+            val shortenedId = if (segments.isNotEmpty() && segments[0].length > 2) {
+                segments[0].drop(2) + if (segments.size > 1) "-" + segments.drop(1).joinToString("-") else ""
+            } else {
+                noteIdProperty.lowercase()
+            }
+            
+            // Find the prefix directory
+            val prefixDir = attachRootDir.findFile(noteIdPrefix) ?: return 0
+            
+            // Find the note-specific directory
+            val noteAttachDir = prefixDir.findFile(shortenedId) ?: return 0
+            
+            // Delete all files in the note's attachment directory
+            var deletedCount = 0
+            val files = noteAttachDir.listFiles()
+            for (file in files) {
+                if (file.isFile) {
+                    if (file.delete()) {
+                        deletedCount++
+                        if (BuildConfig.LOG_DEBUG) {
+                            LogUtils.d(TAG, "Deleted DocumentFile attachment: ${file.name}")
+                        }
+                    }
+                }
+            }
+            
+            // Remove the note directory if it's now empty
+            val remainingFiles = noteAttachDir.listFiles()
+            if (remainingFiles.isEmpty()) {
+                noteAttachDir.delete()
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Removed empty note attachment directory via DocumentFile")
+                }
+                
+                // Also try to remove the prefix directory if it's now empty
+                val prefixFiles = prefixDir.listFiles()
+                if (prefixFiles.isEmpty()) {
+                    prefixDir.delete()
+                    if (BuildConfig.LOG_DEBUG) {
+                        LogUtils.d(TAG, "Removed empty prefix attachment directory via DocumentFile")
+                    }
+                }
+            }
+            
+            return deletedCount
+            
+        } catch (e: Exception) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "DocumentFile attachment cleanup failed: ${e.message}")
+            }
+            return 0
+        }
+    }
+
     /**
      * Helper method to get book file path from BookView for attachment operations.
      */

@@ -111,7 +111,7 @@ class NoteItemViewBinder(private val context: Context, private val inBook: Boole
 
             // Set note context for attachment/image resolution BEFORE setting content
             try {
-                val noteIdProperty = AttachmentManager.extractNoteId(note)
+                val noteIdProperty = AttachmentManager.extractNoteId(note, dataRepository)
                 val bookFile = getBookFileForNote(note)
                 
                 // Set context for RichText to enable image loading in list items

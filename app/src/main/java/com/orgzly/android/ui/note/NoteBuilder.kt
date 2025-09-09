@@ -101,19 +101,36 @@ class NoteBuilder {
 
         @JvmStatic
         fun newPayload(context: Context, title: String, content: String?): NotePayload {
+            return newPayload(context, title, content, null, null)
+        }
 
+        @JvmStatic
+        fun newPayload(
+            context: Context,
+            title: String,
+            content: String?,
+            initialTags: List<String>?,
+            initialProperties: Map<String, String>?
+        ): NotePayload {
             val scheduled = initialScheduledTime(context)
-
             val state = initialState(context)
+            val baseProperties = initialProperties(context)
 
-            val properties = initialProperties(context)
+            // Merge initial properties with any provided properties
+            initialProperties?.forEach { (key, value) ->
+                baseProperties.put(key, value)
+            }
+
+            // Merge initial tags with empty list if none provided
+            val tags = initialTags ?: emptyList()
 
             return NotePayload(
-                    title = title,
-                    content = content,
-                    state = state,
-                    scheduled = scheduled,
-                    properties = properties
+                title = title,
+                content = content,
+                state = state,
+                scheduled = scheduled,
+                tags = tags,
+                properties = baseProperties
             )
         }
 

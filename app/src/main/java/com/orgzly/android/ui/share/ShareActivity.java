@@ -46,6 +46,10 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import javax.inject.Inject;
 
@@ -252,8 +256,24 @@ public class ShareActivity extends CommonActivity
                 // Store attachment data for processing after note creation
                 mPendingAttachmentData = data;
 
+                // Prepare initial tags and properties for attachment notes
+                List<String> initialTags = null;
+                Map<String, String> initialProperties = null;
+                
+                if (data.useAttachmentSystem) {
+                    // Add ATTACH tag for attachment notes
+                    initialTags = new ArrayList<>();
+                    initialTags.add("ATTACH");
+                    
+                    // Add ID property for attachment notes  
+                    if (data.noteId != null) {
+                        initialProperties = new HashMap<>();
+                        initialProperties.put("ID", data.noteId);
+                    }
+                }
+
                 noteFragment = NoteFragment.forNewNote(
-                        new NotePlace(bookId), data.title, data.content);
+                        new NotePlace(bookId), data.title, data.content, initialTags, initialProperties);
 
                 getSupportFragmentManager()
                         .beginTransaction()

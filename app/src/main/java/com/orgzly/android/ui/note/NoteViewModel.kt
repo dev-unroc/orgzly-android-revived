@@ -35,7 +35,9 @@ data class NoteInitialData(
     val noteId: Long, // Could be 0 if new note is being created
     val place: Place? = null, // Relative location, used for new notes
     val title: String? = null, // Initial title, used for when sharing
-    val content: String? = null // Initial content, used for when sharing
+    val content: String? = null, // Initial content, used for when sharing
+    val tags: List<String>? = null, // Initial tags, used for when sharing
+    val properties: Map<String, String>? = null // Initial properties, used for when sharing
 )
 
 class NoteViewModel(
@@ -47,6 +49,8 @@ class NoteViewModel(
     private var place = initialData.place
     private val title = initialData.title
     private val content = initialData.content
+    private val initialTags = initialData.tags
+    private val initialProperties = initialData.properties
 
     val bookView: MutableLiveData<BookView?> = MutableLiveData()
 
@@ -85,8 +89,8 @@ class NoteViewModel(
             }
 
             notePayload = if (isNew()) {
-                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Creating new payload with title='${title.orEmpty()}', content='$content'")
-                NoteBuilder.newPayload(App.getAppContext(), title.orEmpty(), content)
+                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Creating new payload with title='${title.orEmpty()}', content='$content', tags=$initialTags, properties=$initialProperties")
+                NoteBuilder.newPayload(App.getAppContext(), title.orEmpty(), content, initialTags, initialProperties)
             } else {
                 if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Loading existing payload from database for noteId=$noteId")
                 dataRepository.getNotePayload(noteId)

@@ -129,8 +129,19 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             // Initial values when sharing
             val title = args.getString(ARG_TITLE)
             val content = args.getString(ARG_CONTENT)
+            val tags: List<String>? = args.getStringArrayList(ARG_TAGS)
+            val propertiesBundle = args.getBundle(ARG_PROPERTIES)
+            val properties = propertiesBundle?.let { bundle ->
+                val map = mutableMapOf<String, String>()
+                for (key in bundle.keySet()) {
+                    bundle.getString(key)?.let { value ->
+                        map[key] = value
+                    }
+                }
+                map
+            }
 
-            return NoteInitialData(bookId, noteId, place, title, content)
+            return NoteInitialData(bookId, noteId, place, title, content, tags, properties)
         }
     }
 
@@ -487,7 +498,7 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             }
             
             val note = if (viewModel.noteId > 0) dataRepository.getNote(viewModel.noteId) else null
-            val noteIdProperty = note?.let { AttachmentManager.extractNoteId(it) }
+            val noteIdProperty = note?.let { AttachmentManager.extractNoteId(it, dataRepository) }
             val bookView = dataRepository.getBookView(viewModel.bookId)
             val bookFile = bookView?.let { getBookFileFromBookView(it) }
             
@@ -1191,13 +1202,17 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
         private const val ARG_PLACE = "place"
         private const val ARG_TITLE = "title"
         private const val ARG_CONTENT = "content"
+        private const val ARG_TAGS = "tags"
+        private const val ARG_PROPERTIES = "properties"
 
         @JvmStatic
         @JvmOverloads
         fun forNewNote(
             notePlace: NotePlace,
             initialTitle: String? = null,
-            initialContent: String? = null): NoteFragment? {
+            initialContent: String? = null,
+            initialTags: List<String>? = null,
+            initialProperties: Map<String, String>? = null): NoteFragment? {
 
             return if (notePlace.bookId > 0) {
                 getInstance(
@@ -1205,7 +1220,9 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
                     notePlace.noteId,
                     notePlace.place,
                     initialTitle,
-                    initialContent)
+                    initialContent,
+                    initialTags,
+                    initialProperties)
             } else {
                 Log.e(TAG, "Invalid book id ${notePlace.bookId}")
                 null
@@ -1228,7 +1245,9 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             noteId: Long,
             place: Place? = null,
             initialTitle: String? = null,
-            initialContent: String? = null): NoteFragment {
+            initialContent: String? = null,
+            initialTags: List<String>? = null,
+            initialProperties: Map<String, String>? = null): NoteFragment {
 
             val fragment = NoteFragment()
 
@@ -1250,6 +1269,18 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
 
             if (initialContent != null) {
                 args.putString(ARG_CONTENT, initialContent)
+            }
+
+            if (initialTags != null) {
+                args.putStringArrayList(ARG_TAGS, ArrayList(initialTags))
+            }
+
+            if (initialProperties != null) {
+                val propertiesBundle = Bundle()
+                initialProperties.forEach { (key, value) ->
+                    propertiesBundle.putString(key, value)
+                }
+                args.putBundle(ARG_PROPERTIES, propertiesBundle)
             }
 
             fragment.arguments = args

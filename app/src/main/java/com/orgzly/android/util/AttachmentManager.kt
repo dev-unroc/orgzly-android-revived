@@ -91,8 +91,23 @@ object AttachmentManager {
      * Extract note ID from note properties.
      * Returns null if no ID property is found.
      */
-    fun extractNoteId(note: Note): String? {
-        // Look for ID property in note content
+    fun extractNoteId(note: Note, dataRepository: com.orgzly.android.data.DataRepository? = null): String? {
+        // First try to get ID from database properties (new approach)
+        if (dataRepository != null) {
+            try {
+                val properties = dataRepository.getNoteProperties(note.id)
+                val idProperty = properties.find { it.name == "ID" }
+                if (idProperty != null) {
+                    return idProperty.value
+                }
+            } catch (e: Exception) {
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Failed to get note properties from database: ${e.message}")
+                }
+            }
+        }
+        
+        // Fallback to content parsing (backward compatibility)
         val content = note.content
         if (content != null) {
             val lines = content.split('\n')

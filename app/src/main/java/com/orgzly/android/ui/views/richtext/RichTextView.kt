@@ -22,6 +22,7 @@ import com.orgzly.android.ui.views.style.CheckboxSpan
 import com.orgzly.android.ui.views.style.DrawerMarkerSpan
 import com.orgzly.android.ui.views.style.Offsetting
 import com.orgzly.android.util.LogUtils
+import java.io.File
 
 class RichTextView : AppCompatTextView, ActionableRichTextView {
 
@@ -197,6 +198,11 @@ class RichTextView : AppCompatTextView, ActionableRichTextView {
     // Just pass to RichView
     override fun followLinkToFile(path: String) {
         listeners.onActionListener?.followLinkToFile(path)
+    }
+    
+    // Just pass to RichView
+    override fun followLinkToFileWithContext(path: String, noteId: String?, bookFile: File?) {
+        listeners.onActionListener?.followLinkToFileWithContext(path, noteId, bookFile)
     }
 
     companion object {

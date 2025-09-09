@@ -52,6 +52,7 @@ public class AppIntent {
     public static final String EXTRA_PROPERTY_NAME  = "com.orgzly.intent.extra.PROPERTY_NAME";
     public static final String EXTRA_PROPERTY_VALUE  = "com.orgzly.intent.extra.PROPERTY_VALUE";
     public static final String EXTRA_PATH  = "com.orgzly.intent.extra.PATH";
+    public static final String EXTRA_BOOK_FILE = "com.orgzly.intent.extra.BOOK_FILE";
     public static final String EXTRA_NOTIFICATION_TAG = "com.orgzly.intent.extra.NOTIFICATION_TAG";
     public static final String EXTRA_NOTIFICATION_ID = "com.orgzly.intent.extra.NOTIFICATION_ID";
     public static final String EXTRA_NOTE_TIME_TYPE = "com.orgzly.intent.extra.NOTE_TIME_TYPE";

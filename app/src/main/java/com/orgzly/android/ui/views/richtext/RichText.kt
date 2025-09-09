@@ -17,6 +17,9 @@ import com.orgzly.BuildConfig
 import com.orgzly.R
 import com.orgzly.android.prefs.AppPreferences
 import com.orgzly.android.ui.ImageLoader
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import com.orgzly.android.App
+import com.orgzly.android.AppIntent
 import com.orgzly.android.ui.main.MainActivity
 import com.orgzly.android.ui.util.styledAttributes
 import com.orgzly.android.ui.views.style.CheckboxSpan
@@ -24,6 +27,8 @@ import com.orgzly.android.ui.views.style.DrawerMarkerSpan
 import com.orgzly.android.ui.views.style.DrawerSpan
 import com.orgzly.android.util.LogUtils
 import com.orgzly.android.util.OrgFormatter
+import java.io.File
+import android.content.Intent
 
 class RichText(context: Context, attrs: AttributeSet?) :
     FrameLayout(context, attrs), ActionableRichTextView {
@@ -39,7 +44,7 @@ class RichText(context: Context, attrs: AttributeSet?) :
     
     // Context for attachment/image resolution
     private var noteId: String? = null
-    private var bookFile: java.io.File? = null
+    private var bookFile: File? = null
 
     fun setOnUserTextChangeListener(listener: OnUserTextChangeListener) {
         listeners.onUserTextChange = listener
@@ -48,7 +53,7 @@ class RichText(context: Context, attrs: AttributeSet?) :
     /**
      * Set the note context for attachment and image resolution.
      */
-    fun setNoteContext(noteId: String?, bookFile: java.io.File?) {
+    fun setNoteContext(noteId: String?, bookFile: File?) {
         this.noteId = noteId
         this.bookFile = bookFile
     }
@@ -297,7 +302,27 @@ class RichText(context: Context, attrs: AttributeSet?) :
     }
 
     override fun followLinkToFile(path: String) {
-        MainActivity.followLinkToFile(path)
+        // For attachment links, use the context-aware method if we have context
+        if (path.startsWith("attachment:") && noteId != null && bookFile != null) {
+            followLinkToFileWithContext(path, noteId, bookFile)
+        } else {
+            MainActivity.followLinkToFile(path)
+        }
+    }
+    
+    override fun followLinkToFileWithContext(path: String, noteId: String?, bookFile: File?) {
+        if (noteId != null && bookFile != null) {
+            // Create intent with context directly
+            val intent = Intent(AppIntent.ACTION_FOLLOW_LINK_TO_FILE).apply {
+                putExtra(AppIntent.EXTRA_PATH, path)
+                putExtra(AppIntent.EXTRA_NOTE_ID, noteId)
+                putExtra(AppIntent.EXTRA_BOOK_FILE, bookFile.absolutePath)
+            }
+            LocalBroadcastManager.getInstance(App.getAppContext()).sendBroadcast(intent)
+        } else {
+            // Fall back to regular method if context is incomplete
+            MainActivity.followLinkToFile(path)
+        }
     }
 
     companion object {

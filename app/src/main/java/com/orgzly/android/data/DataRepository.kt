@@ -1654,8 +1654,36 @@ class DataRepository @Inject constructor(
         if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "Updated $count note: $newNote")
     }
 
-    fun deleteNotes(bookId: Long, ids: Set<Long>): Int {
+    fun deleteNotes(bookId: Long, ids: Set<Long>, deleteAttachments: Boolean = false): Int {
         return db.runInTransaction(Callable {
+            // Clean up attachments if requested, before deleting from database
+            if (deleteAttachments) {
+                try {
+                    val bookView = getBookView(bookId)
+                    if (bookView != null) {
+                        val notes = getNotesAndSubtrees(ids)
+                        
+                        for (note in notes) {
+                            val noteIdProperty = com.orgzly.android.util.AttachmentManager.extractNoteId(note, this@DataRepository)
+                            if (noteIdProperty != null) {
+                                // Try to determine book file for attachment cleanup
+                                val bookFile = getBookFileFromBookView(bookView)
+                                if (bookFile != null) {
+                                    val deletedAttachments = com.orgzly.android.util.AttachmentManager.cleanupNoteAttachments(bookFile, noteIdProperty)
+                                    if (BuildConfig.LOG_DEBUG && deletedAttachments > 0) {
+                                        LogUtils.d(TAG, "Cleaned up $deletedAttachments attachments for note ${note.id}")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    if (BuildConfig.LOG_DEBUG) {
+                        LogUtils.d(TAG, "Error cleaning up attachments during note deletion: ${e.message}")
+                    }
+                }
+            }
+            
             db.noteAncestor().deleteForSubtrees(ids)
 
             db.note().updateDescendantsCountForAncestors(ids, ids)
@@ -1666,6 +1694,38 @@ class DataRepository @Inject constructor(
 
             count
         })
+    }
+    
+    /**
+     * Helper method to get book file path from BookView for attachment operations.
+     */
+    private fun getBookFileFromBookView(bookView: BookView): java.io.File? {
+        if (bookView.syncedTo != null) {
+            val repoRelativePath = BookName.getRepoRelativePath(bookView)
+            val repo = bookView.linkRepo
+            
+            if (repo != null) {
+                when {
+                    repo.url.startsWith("file:") -> {
+                        val repoPath = repo.url.removePrefix("file:")
+                        return java.io.File(repoPath, repoRelativePath)
+                    }
+                    repo.url.startsWith("content://com.android.externalstorage.documents/tree/primary") -> {
+                        // Handle document URIs for external storage
+                        val path = repo.url.removePrefix("content://com.android.externalstorage.documents/tree/primary")
+                        val decodedPath = java.net.URLDecoder.decode(path, "UTF-8")
+                        val cleanPath = if (decodedPath.startsWith(":")) decodedPath.substring(1) else decodedPath
+                        val repoPath = "/storage/emulated/0/$cleanPath"
+                        return java.io.File(repoPath, repoRelativePath)
+                    }
+                }
+            }
+        }
+        
+        // Fallback to app external directory
+        val appExternalDir = context.getExternalFilesDir("orgzly-books") ?: context.filesDir
+        val bookDirName = bookView.book.name.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+        return java.io.File(appExternalDir, "$bookDirName.org")
     }
 
     fun getNoteEvents(noteId: Long): List<NoteEvent> {

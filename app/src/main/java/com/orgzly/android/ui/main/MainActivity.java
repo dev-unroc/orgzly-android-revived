@@ -672,8 +672,8 @@ public class MainActivity extends CommonActivity
     }
 
     @Override
-    public void onNotesDeleteRequest(final long bookId, final Set<Long> noteIds) {
-        mSyncFragment.run(new NoteDelete(bookId, noteIds));
+    public void onNotesDeleteRequest(final long bookId, final Set<Long> noteIds, final boolean deleteAttachments) {
+        mSyncFragment.run(new NoteDelete(bookId, noteIds, deleteAttachments));
     }
 
     @Override

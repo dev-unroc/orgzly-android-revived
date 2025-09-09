@@ -431,18 +431,43 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             activity?.showSnackbar(message)
         })
 
-        viewModel.noteDeleteRequest.observeSingle(viewLifecycleOwner, Observer { count ->
-            val question = resources.getQuantityString(
-                R.plurals.delete_note_or_notes_with_count_question, count, count)
+        viewModel.noteDeleteRequest.observeSingle(viewLifecycleOwner, Observer { deleteInfo ->
+            val count = deleteInfo.count
+            val hasAttachments = deleteInfo.hasAttachments
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Delete dialog: count=$count, hasAttachments=$hasAttachments")
+            }
+            
+            if (hasAttachments) {
+                // Show attachment-aware deletion dialog
+                val question = resources.getQuantityString(
+                    R.plurals.delete_note_or_notes_with_count_question, count, count)
 
-            dialog = MaterialAlertDialogBuilder(requireContext())
-                .setTitle(question)
-                .setPositiveButton(R.string.delete) { _, _ ->
-                    viewModel.deleteNote()
-                }
-                .setNegativeButton(R.string.cancel) { _, _ -> }
-                .show()
+                dialog = MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(question)
+                    .setMessage("This note has attachments. Do you want to delete the attachment files as well?")
+                    .setPositiveButton("Delete All") { _, _ ->
+                        viewModel.deleteNote(deleteAttachments = true)
+                    }
+                    .setNegativeButton("Delete Note Only") { _, _ ->
+                        viewModel.deleteNote(deleteAttachments = false)
+                    }
+                    .setNeutralButton(R.string.cancel) { _, _ -> }
+                    .show()
+            } else {
+                // Show regular deletion dialog
+                val question = resources.getQuantityString(
+                    R.plurals.delete_note_or_notes_with_count_question, count, count)
 
+                dialog = MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(question)
+                    .setPositiveButton(R.string.delete) { _, _ ->
+                        viewModel.deleteNote()
+                    }
+                    .setNegativeButton(R.string.cancel) { _, _ -> }
+                    .show()
+            }
         })
 
         viewModel.bookChangeRequestEvent.observeSingle(viewLifecycleOwner, Observer { books ->

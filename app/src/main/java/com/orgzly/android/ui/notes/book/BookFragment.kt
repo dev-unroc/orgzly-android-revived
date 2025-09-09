@@ -231,20 +231,40 @@ class BookFragment :
                     .show(childFragmentManager, RefileFragment.FRAGMENT_TAG)
         })
 
-        viewModel.notesDeleteRequest.observeSingle(viewLifecycleOwner, Observer { pair ->
-            val ids = pair.first
-            val count = pair.second
+        viewModel.notesDeleteRequest.observeSingle(viewLifecycleOwner, Observer { deleteInfo ->
+            val ids = deleteInfo.ids
+            val count = deleteInfo.count
+            val hasAttachments = deleteInfo.hasAttachments
 
-            val question = resources.getQuantityString(
+            if (hasAttachments) {
+                // Show attachment-aware deletion dialog
+                val question = resources.getQuantityString(
                     R.plurals.delete_note_or_notes_with_count_question, count, count)
 
-            dialog = MaterialAlertDialogBuilder(requireContext())
+                dialog = MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(question)
+                    .setMessage("Some notes have attachments. Do you want to delete the attachment files as well?")
+                    .setPositiveButton("Delete All") { _, _ ->
+                        listener?.onNotesDeleteRequest(mBookId, ids, true)
+                    }
+                    .setNegativeButton("Delete Notes Only") { _, _ ->
+                        listener?.onNotesDeleteRequest(mBookId, ids, false)
+                    }
+                    .setNeutralButton(R.string.cancel) { _, _ -> }
+                    .show()
+            } else {
+                // Show regular deletion dialog
+                val question = resources.getQuantityString(
+                    R.plurals.delete_note_or_notes_with_count_question, count, count)
+
+                dialog = MaterialAlertDialogBuilder(requireContext())
                     .setTitle(question)
                     .setPositiveButton(R.string.delete) { _, _ ->
-                        listener?.onNotesDeleteRequest(mBookId, ids)
+                        listener?.onNotesDeleteRequest(mBookId, ids, false)
                     }
                     .setNegativeButton(R.string.cancel) { _, _ -> }
                     .show()
+            }
         })
 
         viewModel.appBar.mode.observeSingle(viewLifecycleOwner) { mode ->
@@ -906,7 +926,7 @@ class BookFragment :
 
         fun onBookPrefaceUpdate(bookId: Long, preface: String)
 
-        fun onNotesDeleteRequest(bookId: Long, noteIds: Set<Long>)
+        fun onNotesDeleteRequest(bookId: Long, noteIds: Set<Long>, deleteAttachments: Boolean = false)
 
         fun onNotesCutRequest(bookId: Long, noteIds: Set<Long>)
         fun onNotesCopyRequest(bookId: Long, noteIds: Set<Long>)

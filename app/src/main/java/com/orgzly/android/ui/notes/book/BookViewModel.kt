@@ -12,6 +12,7 @@ import com.orgzly.android.ui.CommonViewModel
 import com.orgzly.android.ui.SingleLiveEvent
 import com.orgzly.android.usecase.BookCycleVisibility
 import com.orgzly.android.usecase.UseCaseRunner
+import com.orgzly.android.util.AttachmentManager
 
 class BookViewModel(private val dataRepository: DataRepository, val bookId: Long) : CommonViewModel() {
 
@@ -68,6 +69,8 @@ class BookViewModel(private val dataRepository: DataRepository, val bookId: Long
     }
 
     data class NotesToRefile(val selected: Set<Long>, val count: Int)
+    
+    data class NotesDeleteInfo(val ids: Set<Long>, val count: Int, val hasAttachments: Boolean)
 
     val refileRequestEvent: SingleLiveEvent<NotesToRefile> = SingleLiveEvent()
 
@@ -79,12 +82,17 @@ class BookViewModel(private val dataRepository: DataRepository, val bookId: Long
     }
 
 
-    val notesDeleteRequest: SingleLiveEvent<Pair<Set<Long>, Int>> = SingleLiveEvent()
+    val notesDeleteRequest: SingleLiveEvent<NotesDeleteInfo> = SingleLiveEvent()
 
     fun requestNotesDelete(ids: Set<Long>) {
         App.EXECUTORS.diskIO().execute {
             val count = dataRepository.getNotesAndSubtreesCount(ids)
-            notesDeleteRequest.postValue(Pair(ids, count))
+            
+            // Check if any of the notes to be deleted have attachments
+            val notes = dataRepository.getNotesAndSubtrees(ids)
+            val hasAttachments = notes.any { note -> AttachmentManager.noteHasAttachments(note) }
+            
+            notesDeleteRequest.postValue(NotesDeleteInfo(ids, count, hasAttachments))
         }
     }
 }

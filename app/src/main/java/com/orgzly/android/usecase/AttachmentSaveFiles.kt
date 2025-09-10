@@ -76,29 +76,26 @@ class AttachmentSaveFiles(
     }
 
     override fun run(dataRepository: DataRepository): UseCaseResult {
-        LogUtils.d(TAG, "Starting attachment save for noteId=$noteId, uri=$sharedFileUri, noteIdProperty=$noteIdProperty")
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "Starting attachment save for noteId=$noteId")
+        }
         
         if (sharedFileUri == null || noteIdProperty == null) {
-            Log.w(TAG, "Missing required parameters - sharedFileUri: ${sharedFileUri != null}, noteIdProperty: ${noteIdProperty != null}")
+            Log.w(TAG, "Missing required parameters for attachment save")
             return UseCaseResult()
         }
 
-        val note = dataRepository.getNote(noteId)
-        if (note == null) {
+        val note = dataRepository.getNote(noteId) ?: run {
             Log.e(TAG, "Note not found for id: $noteId")
             return UseCaseResult()
         }
-        LogUtils.d(TAG, "Found note: id=${note.id}, title='${note.title}', content length=${note.content?.length ?: 0}")
         
-        val bookView = dataRepository.getBookView(note.position.bookId)
-        if (bookView == null) {
+        val bookView = dataRepository.getBookView(note.position.bookId) ?: run {
             Log.e(TAG, "BookView not found for bookId: ${note.position.bookId}")
             return UseCaseResult()
         }
-        LogUtils.d(TAG, "Found bookView: name='${bookView.book.name}', syncedTo='${bookView.syncedTo?.uri}'")
         
         val bookFile = getBookFileForAttachments(dataRepository, bookView)
-        LogUtils.d(TAG, "Book file for attachments: ${bookFile.absolutePath}")
 
         return try {
             // Check if we're dealing with external storage through DocumentFile
@@ -106,23 +103,17 @@ class AttachmentSaveFiles(
             val useDocumentFile = repoUri != null && repoUri.startsWith("content://com.android.externalstorage.documents/tree/")
             
             val attachmentFile = if (useDocumentFile) {
-                LogUtils.d(TAG, "Using DocumentFile API for external storage attachment")
                 saveAttachmentUsingDocumentFile(bookView, noteIdProperty, sharedFileUri)
             } else {
-                LogUtils.d(TAG, "Using regular File API for internal/local attachment")
                 saveAttachmentUsingFileApi(bookFile, noteIdProperty, sharedFileUri)
             }
             
-            LogUtils.d(TAG, "Attachment saved successfully: ${attachmentFile.name}")
-
             // Update note content if needed (the content should already have the attachment link
             // but we might need to handle cases where the filename changed due to conflicts)
             val originalFilename = AttachmentManager.getFileNameFromUri(context, sharedFileUri)
             val actualFilename = attachmentFile.name
-            LogUtils.d(TAG, "Original filename: '$originalFilename', actual filename: '$actualFilename'")
             
             if (originalFilename != actualFilename) {
-                LogUtils.d(TAG, "Filename changed, updating note content")
                 // File was renamed due to conflict, update the note content
                 val updatedContent = note.content?.replace(
                     "[[attachment:$originalFilename]]",
@@ -130,16 +121,10 @@ class AttachmentSaveFiles(
                 )
                 
                 if (updatedContent != null && updatedContent != note.content) {
-                    LogUtils.d(TAG, "Updating note content due to filename change")
                     dataRepository.updateNoteContent(noteId, updatedContent)
-                } else {
-                    LogUtils.d(TAG, "No content update needed")
                 }
-            } else {
-                LogUtils.d(TAG, "Filename unchanged, no content update needed")
             }
 
-            LogUtils.d(TAG, "Attachment save completed successfully")
             UseCaseResult(
                 userData = attachmentFile
             )
@@ -175,19 +160,9 @@ class AttachmentSaveFiles(
         
         LogUtils.d(TAG, "Attachment root directory: ${attachRootDir.uri}")
         
-        // Create or find hierarchical attachment directory (Doom Emacs compatible)
+        // Create or find hierarchical attachment directory (Emacs org-mode compatible)
         // For UUID caeffd7f-f678-486b-8ffa-7bac167f4e71, use "ca" and "effd7f-f678-486b-8ffa-7bac167f4e71"
-        val segments = noteIdProperty.lowercase().split("-")
-        val noteIdPrefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
-            segments[0].take(2)
-        } else {
-            noteIdProperty.lowercase().take(2)
-        }
-        val shortenedId = if (segments.isNotEmpty() && segments[0].length > 2) {
-            segments[0].drop(2) + if (segments.size > 1) "-" + segments.drop(1).joinToString("-") else ""
-        } else {
-            noteIdProperty.lowercase()
-        }
+        val (noteIdPrefix, shortenedId) = getHierarchicalDirComponents(noteIdProperty)
         
         // First, get or create the prefix subdirectory
         val prefixDir = attachRootDir.findFile(noteIdPrefix)
@@ -201,15 +176,8 @@ class AttachmentSaveFiles(
         
         LogUtils.d(TAG, "Note attachment directory: ${noteAttachDir.uri}")
         
-        // Verify we can list the attachments directory contents
-        try {
-            val attachDirContents = attachRootDir.listFiles()
-            LogUtils.d(TAG, "Attach root directory contains ${attachDirContents.size} items:")
-            attachDirContents.forEach { item ->
-                LogUtils.d(TAG, "  - ${item.name} (${if (item.isDirectory) "DIR" else "FILE"}): ${item.uri}")
-            }
-        } catch (e: Exception) {
-            LogUtils.d(TAG, "Failed to list attach directory contents: ${e.message}")
+        if (BuildConfig.LOG_DEBUG) {
+            logDirectoryContents(attachRootDir, "Attach root directory")
         }
         
         // Get the original filename
@@ -228,19 +196,8 @@ class AttachmentSaveFiles(
         
         LogUtils.d(TAG, "Created attachment DocumentFile: ${attachmentDocFile.uri}")
         
-        // Copy the content from sharedFileUri to attachmentDocFile
-        try {
-            context.contentResolver.openInputStream(sharedFileUri)?.use { inputStream ->
-                context.contentResolver.openOutputStream(attachmentDocFile.uri)?.use { outputStream ->
-                    val bytesCopied = inputStream.copyTo(outputStream)
-                    outputStream.flush()
-                    LogUtils.d(TAG, "Successfully copied $bytesCopied bytes via DocumentFile API")
-                }
-            }
-        } catch (e: Exception) {
-            LogUtils.d(TAG, "Failed to copy file via DocumentFile API: ${e.message}")
-            throw e
-        }
+        // Copy the content using common copy function
+        copyFileContent(sharedFileUri, attachmentDocFile.uri, "DocumentFile API")
         
         // Calculate the expected file system path using proper repository path resolution
         val repoPath = resolveRepositoryFilesystemPath(repoUri)
@@ -248,40 +205,8 @@ class AttachmentSaveFiles(
         
         val attachmentPath = "$repoPath/attachments/$noteIdPrefix/$shortenedId/$originalFilename"
         
-        // Verify the file was created and get its properties
-        try {
-            val fileExists = attachmentDocFile.exists()
-            val fileLength = attachmentDocFile.length()
-            val fileName = attachmentDocFile.name
-            LogUtils.d(TAG, "DocumentFile verification: exists=$fileExists, name='$fileName', size=$fileLength bytes")
-            
-            // Try to trigger media scanner to make file visible
-            android.media.MediaScannerConnection.scanFile(
-                context,
-                arrayOf(attachmentPath),
-                arrayOf("image/*"),
-                null
-            )
-            LogUtils.d(TAG, "Triggered media scanner for path: $attachmentPath")
-            
-            // Test direct filesystem access
-            val directFile = File(attachmentPath)
-            LogUtils.d(TAG, "Direct file system access test:")
-            LogUtils.d(TAG, "  File exists: ${directFile.exists()}")
-            LogUtils.d(TAG, "  File parent exists: ${directFile.parentFile?.exists()}")
-            LogUtils.d(TAG, "  File parent path: ${directFile.parentFile?.absolutePath}")
-            if (directFile.parentFile?.exists() == true) {
-                directFile.parentFile?.listFiles()?.let { files ->
-                    LogUtils.d(TAG, "  Parent directory contains ${files.size} files:")
-                    files.forEach { f ->
-                        LogUtils.d(TAG, "    - ${f.name} (${f.length()} bytes)")
-                    }
-                } ?: LogUtils.d(TAG, "  Unable to list parent directory contents")
-            }
-            
-        } catch (e: Exception) {
-            LogUtils.d(TAG, "File verification failed: ${e.message}")
-        }
+        // Verify file creation and trigger media scanner
+        verifyAndRegisterFile(attachmentDocFile, attachmentPath)
         
         LogUtils.d(TAG, "Attachment file path: $attachmentPath")
         return File(attachmentPath)
@@ -297,26 +222,9 @@ class AttachmentSaveFiles(
     ): File {
         LogUtils.d(TAG, "Saving attachment using File API")
         
-        // Test if we can write to the book file directory first
+        // Test write access to sync directory
         val parentDir = bookFile.parentFile
-        val canWriteToSyncDir = if (parentDir != null) {
-            try {
-                val testAttachDir = File(parentDir, "attachments")
-                val testFile = File(testAttachDir, "test.tmp")
-                testAttachDir.mkdirs()
-                val canWrite = testFile.createNewFile()
-                if (canWrite) {
-                    testFile.delete() // Clean up test file
-                }
-                LogUtils.d(TAG, "Write test to sync directory: $canWrite")
-                canWrite
-            } catch (e: Exception) {
-                LogUtils.d(TAG, "Cannot write to sync directory: ${e.message}")
-                false
-            }
-        } else {
-            false
-        }
+        val canWriteToSyncDir = testDirectoryWriteAccess(parentDir)
         
         val finalBookFile = if (!canWriteToSyncDir) {
             LogUtils.d(TAG, "Sync directory not writable, using app external directory")
@@ -463,5 +371,115 @@ class AttachmentSaveFiles(
         syntheticBookFile.parentFile?.mkdirs()
         
         return syntheticBookFile
+    }
+    
+    /**
+     * Extract hierarchical directory components from note ID.
+     * Returns (prefix, shortenedId) for Emacs org-mode attachment directory structure.
+     */
+    private fun getHierarchicalDirComponents(noteIdProperty: String): Pair<String, String> {
+        val segments = noteIdProperty.lowercase().split("-")
+        val noteIdPrefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
+            segments[0].take(2)
+        } else {
+            noteIdProperty.lowercase().take(2)
+        }
+        val shortenedId = if (segments.isNotEmpty() && segments[0].length > 2) {
+            segments[0].drop(2) + if (segments.size > 1) "-" + segments.drop(1).joinToString("-") else ""
+        } else {
+            noteIdProperty.lowercase()
+        }
+        return noteIdPrefix to shortenedId
+    }
+    
+    /**
+     * Copy file content from source URI to destination URI.
+     */
+    private fun copyFileContent(sourceUri: Uri, destUri: Uri, apiName: String) {
+        try {
+            context.contentResolver.openInputStream(sourceUri)?.use { inputStream ->
+                context.contentResolver.openOutputStream(destUri)?.use { outputStream ->
+                    val bytesCopied = inputStream.copyTo(outputStream)
+                    outputStream.flush()
+                    if (BuildConfig.LOG_DEBUG) {
+                        LogUtils.d(TAG, "Successfully copied $bytesCopied bytes via $apiName")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            LogUtils.d(TAG, "Failed to copy file via $apiName: ${e.message}")
+            throw e
+        }
+    }
+    
+    /**
+     * Test write access to a directory.
+     */
+    private fun testDirectoryWriteAccess(parentDir: File?): Boolean {
+        return if (parentDir != null) {
+            try {
+                val testAttachDir = File(parentDir, "attachments")
+                val testFile = File(testAttachDir, "test.tmp")
+                testAttachDir.mkdirs()
+                val canWrite = testFile.createNewFile()
+                if (canWrite) {
+                    testFile.delete() // Clean up test file
+                }
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Write test to sync directory: $canWrite")
+                }
+                canWrite
+            } catch (e: Exception) {
+                LogUtils.d(TAG, "Cannot write to sync directory: ${e.message}")
+                false
+            }
+        } else {
+            false
+        }
+    }
+    
+    /**
+     * Log directory contents for debugging.
+     */
+    private fun logDirectoryContents(directory: DocumentFile, description: String) {
+        try {
+            val contents = directory.listFiles()
+            LogUtils.d(TAG, "$description contains ${contents.size} items:")
+            contents.forEach { item ->
+                LogUtils.d(TAG, "  - ${item.name} (${if (item.isDirectory) "DIR" else "FILE"}): ${item.uri}")
+            }
+        } catch (e: Exception) {
+            LogUtils.d(TAG, "Failed to list $description contents: ${e.message}")
+        }
+    }
+    
+    /**
+     * Verify file was created and register with media scanner.
+     */
+    private fun verifyAndRegisterFile(documentFile: DocumentFile, filePath: String) {
+        try {
+            val fileExists = documentFile.exists()
+            val fileLength = documentFile.length()
+            val fileName = documentFile.name
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "File verification: exists=$fileExists, name='$fileName', size=$fileLength bytes")
+            }
+            
+            // Trigger media scanner to make file visible
+            android.media.MediaScannerConnection.scanFile(
+                context,
+                arrayOf(filePath),
+                arrayOf("*/*"),
+                null
+            )
+            
+            if (BuildConfig.LOG_DEBUG) {
+                // Test direct filesystem access
+                val directFile = File(filePath)
+                LogUtils.d(TAG, "Direct file system access: exists=${directFile.exists()}, parent exists=${directFile.parentFile?.exists()}")
+            }
+        } catch (e: Exception) {
+            LogUtils.d(TAG, "File verification failed: ${e.message}")
+        }
     }
 }

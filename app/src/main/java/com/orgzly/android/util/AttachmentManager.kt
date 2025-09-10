@@ -18,7 +18,7 @@ import kotlin.jvm.JvmStatic
  * Manages org-mode style attachments in attachments directories.
  * 
  * Follows Emacs org-mode attachment convention:
- * - Attachments stored in attachments/{note-id}/ directories
+ * - Attachments stored in attachments/{prefix}/{note-id}/ directories
  * - Links use [[attachment:filename]] format
  * - Compatible with Emacs org-attach system
  */
@@ -27,22 +27,16 @@ object AttachmentManager {
 
     /**
      * Get the base attachment directory for a book.
-     * Returns the attachments directory relative to the book's location.
      */
     fun getBookAttachmentBaseDir(bookFile: File): File {
         return File(bookFile.parent, "attachments")
     }
 
     /**
-     * Get the attachment directory for a specific note.
-     * Creates directory structure compatible with Doom Emacs:
-     * book-dir/attachments/{first-two-chars}/{note-id}/
-     * e.g., attachments/ca/effd7f-f678-486b-8ffa-7bac167f4e71/
+     * Get the hierarchical directory path components for a note ID.
+     * Returns a pair of (prefix, shortenedId) for directory structure.
      */
-    fun getNoteAttachmentDir(bookFile: File, noteId: String): File {
-        val baseDir = getBookAttachmentBaseDir(bookFile)
-        // Use hierarchical structure like Doom Emacs: first 2 chars of first segment as subdirectory
-        // For UUID caeffd7f-f678-486b-8ffa-7bac167f4e71, use "ca" and "effd7f-f678-486b-8ffa-7bac167f4e71"
+    private fun getHierarchicalDirComponents(noteId: String): Pair<String, String> {
         val segments = noteId.lowercase().split("-")
         val prefix = if (segments.isNotEmpty() && segments[0].length >= 2) {
             segments[0].take(2)
@@ -54,6 +48,16 @@ object AttachmentManager {
         } else {
             noteId.lowercase()
         }
+        return Pair(prefix, shortenedId)
+    }
+
+    /**
+     * Get the attachment directory for a specific note.
+     * Creates directory structure: attachments/{prefix}/{shortened-id}/
+     */
+    fun getNoteAttachmentDir(bookFile: File, noteId: String): File {
+        val baseDir = getBookAttachmentBaseDir(bookFile)
+        val (prefix, shortenedId) = getHierarchicalDirComponents(noteId)
         val hierarchicalDir = File(baseDir, prefix)
         return File(hierarchicalDir, shortenedId)
     }
@@ -72,7 +76,7 @@ object AttachmentManager {
 
     /**
      * Generate a UUID for a new note if it doesn't have one.
-     * This follows org-mode's ID property convention (lowercase for Doom Emacs compatibility).
+     * This follows org-mode's ID property convention.
      */
     @JvmStatic
     fun generateNoteId(): String {
@@ -181,43 +185,25 @@ object AttachmentManager {
     /**
      * Resolve an attachment link to an actual file.
      * Handles both "attachment:filename" and direct "attachments/" paths.
-     * Uses hierarchical (Doom Emacs compatible) directory structure.
      */
     fun resolveAttachmentLink(
         bookFile: File,
         noteId: String?,
         attachmentPath: String
     ): File? {
-        if (BuildConfig.LOG_DEBUG) {
-            LogUtils.d(TAG, "Resolving attachment: $attachmentPath for note: $noteId")
-        }
-
         return when {
             attachmentPath.startsWith("attachment:") -> {
-                // Handle [[attachment:filename.ext]] format
                 val filename = attachmentPath.substring("attachment:".length)
                 if (noteId != null) {
-                    val hierarchicalDir = getNoteAttachmentDir(bookFile, noteId)
-                    val hierarchicalFile = File(hierarchicalDir, filename)
-                    if (hierarchicalFile.exists()) {
-                        if (BuildConfig.LOG_DEBUG) {
-                            LogUtils.d(TAG, "Found attachment: ${hierarchicalFile.absolutePath}")
-                        }
-                        return hierarchicalFile
-                    }
-                    
-                    if (BuildConfig.LOG_DEBUG) {
-                        LogUtils.d(TAG, "Attachment not found: $filename")
-                    }
-                    return null
+                    val attachmentDir = getNoteAttachmentDir(bookFile, noteId)
+                    val attachmentFile = File(attachmentDir, filename)
+                    if (attachmentFile.exists()) attachmentFile else null
                 } else {
                     null
                 }
             }
             attachmentPath.contains("/attachments/") -> {
-                // Handle direct attachment paths like ./attachments/ca/effd7f-f678-486b-8ffa-7bac167f4e71/filename.ext
                 val bookDir = bookFile.parentFile ?: return null
-                // Normalize path by removing leading ./
                 val normalizedPath = if (attachmentPath.startsWith("./")) {
                     attachmentPath.substring(2)
                 } else {
@@ -247,19 +233,14 @@ object AttachmentManager {
 
     /**
      * List all attachments for a note.
-     * Returns list of files from hierarchical directory structure.
      */
     fun getNoteAttachments(bookFile: File, noteId: String): List<File> {
-        val attachments = mutableListOf<File>()
-        
-        val hierarchicalDir = getNoteAttachmentDir(bookFile, noteId)
-        if (hierarchicalDir.exists() && hierarchicalDir.isDirectory) {
-            hierarchicalDir.listFiles()?.let { files ->
-                attachments.addAll(files.filter { it.isFile })
-            }
+        val attachmentDir = getNoteAttachmentDir(bookFile, noteId)
+        return if (attachmentDir.exists() && attachmentDir.isDirectory) {
+            attachmentDir.listFiles()?.filter { it.isFile } ?: emptyList()
+        } else {
+            emptyList()
         }
-        
-        return attachments
     }
 
     /**
@@ -280,71 +261,34 @@ object AttachmentManager {
     
     /**
      * Clean up all attachment files for a note.
-     * This removes the hierarchical attachment directory and its parent if empty after file deletion.
      * Returns the number of attachment files deleted.
      */
     fun cleanupNoteAttachments(bookFile: File, noteId: String): Int {
-        if (BuildConfig.LOG_DEBUG) {
-            LogUtils.d(TAG, "Cleaning up attachments for note: $noteId")
-        }
-        
         var deletedCount = 0
         
-        val hierarchicalDir = getNoteAttachmentDir(bookFile, noteId)
-        if (hierarchicalDir.exists() && hierarchicalDir.isDirectory) {
-            hierarchicalDir.listFiles()?.let { files ->
-                for (file in files) {
-                    if (file.isFile) {
-                        try {
-                            if (file.delete()) {
-                                deletedCount++
-                                if (BuildConfig.LOG_DEBUG) {
-                                    LogUtils.d(TAG, "Deleted attachment file: ${file.absolutePath}")
-                                }
-                            } else {
-                                if (BuildConfig.LOG_DEBUG) {
-                                    LogUtils.d(TAG, "Failed to delete attachment file: ${file.absolutePath}")
-                                }
-                            }
-                        } catch (e: SecurityException) {
-                            if (BuildConfig.LOG_DEBUG) {
-                                LogUtils.d(TAG, "Security exception deleting file: ${file.absolutePath}", e)
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // Remove the note directory if it's now empty
-            try {
-                val remainingFiles = hierarchicalDir.listFiles()
-                if (remainingFiles == null || remainingFiles.isEmpty()) {
-                    hierarchicalDir.delete()
-                    if (BuildConfig.LOG_DEBUG) {
-                        LogUtils.d(TAG, "Removed empty note attachment directory: ${hierarchicalDir.absolutePath}")
-                    }
-                    
-                    // Also try to remove the prefix directory if it's now empty
-                    val prefixDir = hierarchicalDir.parentFile
-                    if (prefixDir != null && prefixDir.name.length == 2) { // Only remove if it's a 2-char prefix dir
-                        val prefixFiles = prefixDir.listFiles()
-                        if (prefixFiles == null || prefixFiles.isEmpty()) {
-                            prefixDir.delete()
-                            if (BuildConfig.LOG_DEBUG) {
-                                LogUtils.d(TAG, "Removed empty prefix attachment directory: ${prefixDir.absolutePath}")
-                            }
-                        }
-                    }
-                }
-            } catch (e: SecurityException) {
-                if (BuildConfig.LOG_DEBUG) {
-                    LogUtils.d(TAG, "Failed to remove empty directories", e)
-                }
+        val attachmentDir = getNoteAttachmentDir(bookFile, noteId)
+        if (!attachmentDir.exists()) return 0
+        
+        // Delete all files in the attachment directory
+        attachmentDir.listFiles()?.forEach { file ->
+            if (file.isFile && file.delete()) {
+                deletedCount++
             }
         }
         
-        if (BuildConfig.LOG_DEBUG) {
-            LogUtils.d(TAG, "Cleaned up $deletedCount attachment files for note: $noteId")
+        // Remove empty directories
+        try {
+            if (attachmentDir.listFiles()?.isEmpty() == true) {
+                attachmentDir.delete()
+                
+                // Also remove prefix directory if empty
+                val prefixDir = attachmentDir.parentFile
+                if (prefixDir?.name?.length == 2 && prefixDir.listFiles()?.isEmpty() == true) {
+                    prefixDir.delete()
+                }
+            }
+        } catch (e: SecurityException) {
+            // Ignore - directories will remain
         }
         
         return deletedCount
@@ -352,28 +296,10 @@ object AttachmentManager {
     
     /**
      * Check if a note has attachments by examining its content and tags.
-     * Returns true if the note has attachment links or the ATTACH tag.
      */
     fun noteHasAttachments(note: Note): Boolean {
-        // Check if note has ATTACH tag
         val tags = Note.dbDeSerializeTags(note.tags)
-        if (tags.contains("ATTACH")) {
-            if (BuildConfig.LOG_DEBUG) {
-                LogUtils.d(TAG, "Note has ATTACH tag: ${note.id}")
-            }
-            return true
-        }
-        
-        // Check if content contains attachment links
-        val content = note.content
-        if (content != null && content.contains("attachment:")) {
-            if (BuildConfig.LOG_DEBUG) {
-                LogUtils.d(TAG, "Note content contains attachment links: ${note.id}")
-            }
-            return true
-        }
-        
-        return false
+        return tags.contains("ATTACH") || note.content?.contains("attachment:") == true
     }
 
     /**

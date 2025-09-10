@@ -22,7 +22,6 @@ class LinkFindTarget(val path: String, val noteId: String? = null, val bookFile:
 
     private fun openLink(dataRepository: DataRepository, path: String): Any {
         // First check if this is an attachment link
-        // if (path.startsWith("attachment:") || path.contains(".attach/")) {
         if (path.startsWith("attachment:")) {
             // If we have book and note context, use it
             bookFile?.let { book ->
@@ -175,7 +174,7 @@ class LinkFindTarget(val path: String, val noteId: String? = null, val bookFile:
     
     /**
      * Get book file for attachments - similar logic to AttachmentSaveFiles.
-     * This determines the base directory where .attach folders should be located.
+     * This determines the base directory where attachment directories should be located.
      */
     private fun getBookFileForAttachments(dataRepository: DataRepository, bookView: BookView): File {
         // Try to determine the book file path

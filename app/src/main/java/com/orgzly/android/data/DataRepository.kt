@@ -331,15 +331,18 @@ class DataRepository @Inject constructor(
     }
 
     fun deleteBook(book: BookView, deleteLinked: Boolean, deleteAttachments: Boolean = false) {
-        // Clean up attachments before deleting the book if requested
-        if (deleteAttachments) {
-            try {
-                com.orgzly.android.util.AttachmentManager.cleanupBookAttachments(this, book)
-            } catch (e: Exception) {
-                // Log error but don't fail the book deletion
-                if (BuildConfig.LOG_DEBUG) {
-                    android.util.Log.e(TAG, "Failed to clean up attachments for book ${book.book.name}", e)
-                }
+        // Clean up attachments before deleting the book
+        // Local attachments are always cleaned up, remote attachments only if requested
+        try {
+            com.orgzly.android.util.AttachmentManager.cleanupBookAttachments(
+                this, 
+                book, 
+                cleanupRemoteAttachments = deleteAttachments
+            )
+        } catch (e: Exception) {
+            // Log error but don't fail the book deletion
+            if (BuildConfig.LOG_DEBUG) {
+                android.util.Log.e(TAG, "Failed to clean up attachments for book ${book.book.name}", e)
             }
         }
         

@@ -241,7 +241,7 @@ object AttachmentManager {
         return if (linkText != null && linkText != filename) {
             "[[attachment:$filename][$linkText]]"
         } else {
-            "[[attachment:$filename]]"
+            "[[attachment:$filename][$filename]]"
         }
     }
 

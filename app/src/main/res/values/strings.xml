@@ -253,7 +253,7 @@
 
     <string name="also_delete_linked_book">Delete linked remote notebook</string>
     <string name="also_delete_linked_books">Delete any linked remote notebooks</string>
-    <string name="also_delete_attachments">Delete attachments</string>
+    <string name="also_delete_attachments">Delete remote attachments</string>
     <string name="message_deleting_book_failed">Deleting notebook(s) failed: %s</string>
     <string name="message_book_deleted">Notebook(s) deleted</string>
 

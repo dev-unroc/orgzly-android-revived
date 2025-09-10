@@ -361,6 +361,18 @@ class DataRepository @Inject constructor(
     fun getNotesWithAttachments(bookId: Long): List<Note> {
         return db.note().getNotesWithAttachments(bookId)
     }
+    
+    /**
+     * Check if any of the given books have attachments.
+     */
+    fun booksHaveAttachments(bookIds: Set<Long>): Boolean {
+        for (bookId in bookIds) {
+            if (getNotesWithAttachments(bookId).isNotEmpty()) {
+                return true
+            }
+        }
+        return false
+    }
 
     fun renameBook(bookView: BookView, name: String) {
         try {

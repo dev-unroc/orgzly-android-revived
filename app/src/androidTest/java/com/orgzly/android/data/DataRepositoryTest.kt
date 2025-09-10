@@ -411,4 +411,65 @@ class DataRepositoryTest : OrgzlyTest() {
         // Clean up the test files
         attachmentsDir.deleteRecursively()
     }
+    
+    /**
+     * Test the booksHaveAttachments method works correctly.
+     */
+    @Test
+    fun testBooksHaveAttachments() {
+        // Given - create two books, one with attachments and one without
+        val bookWithAttachments = "book-with-attachments"
+        val bookWithoutAttachments = "book-without-attachments"
+        val noteId = "test-note-id-123"
+        
+        testUtils.setupBook(
+            bookWithAttachments,
+            """
+                * Note with attachment   :ATTACH:
+                :PROPERTIES:
+                :ID: $noteId
+                :END:
+                
+                This note has an attachment: [[attachment:test.txt][test.txt]]
+            """.trimIndent()
+        )
+        
+        testUtils.setupBook(
+            bookWithoutAttachments,
+            """
+                * Regular note
+                
+                This note has no attachments.
+            """.trimIndent()
+        )
+        
+        val bookWithAttachmentsObj = dataRepository.getBook(bookWithAttachments)!!
+        val bookWithoutAttachmentsObj = dataRepository.getBook(bookWithoutAttachments)!!
+        
+        // When & Then - check individual books
+        assertTrue(
+            "Book with attachments should return true", 
+            dataRepository.booksHaveAttachments(setOf(bookWithAttachmentsObj.id))
+        )
+        
+        assertFalse(
+            "Book without attachments should return false", 
+            dataRepository.booksHaveAttachments(setOf(bookWithoutAttachmentsObj.id))
+        )
+        
+        // When & Then - check multiple books
+        assertTrue(
+            "Multiple books where one has attachments should return true",
+            dataRepository.booksHaveAttachments(setOf(
+                bookWithAttachmentsObj.id, 
+                bookWithoutAttachmentsObj.id
+            ))
+        )
+        
+        // When & Then - check empty set
+        assertFalse(
+            "Empty set should return false",
+            dataRepository.booksHaveAttachments(emptySet())
+        )
+    }
 }

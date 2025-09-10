@@ -27,7 +27,7 @@ import com.orgzly.android.usecase.UseCaseRunner
 import com.orgzly.android.util.LogUtils
 
 
-class BooksViewModel(private val dataRepository: DataRepository) : CommonViewModel() {
+class BooksViewModel(val dataRepository: DataRepository) : CommonViewModel() {
     private val booksParams = MutableLiveData<String>()
 
     // Book being operated on (deleted, renamed, etc.)

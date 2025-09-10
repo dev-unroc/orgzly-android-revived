@@ -80,10 +80,10 @@ class BooksViewModel(private val dataRepository: DataRepository) : CommonViewMod
         }
     }
 
-    fun deleteBooks(bookIds: Set<Long>, deleteLinked: Boolean) {
+    fun deleteBooks(bookIds: Set<Long>, deleteLinked: Boolean, deleteAttachments: Boolean = false) {
         App.EXECUTORS.diskIO().execute {
             catchAndPostError {
-                val result = UseCaseRunner.run(BookDelete(bookIds, deleteLinked))
+                val result = UseCaseRunner.run(BookDelete(bookIds, deleteLinked, deleteAttachments))
                 bookDeletedEvent.postValue(result)
             }
         }

@@ -93,9 +93,9 @@ class AttachmentManagerTest {
     fun testCreateAttachmentLink() {
         val attachmentFile = File("test-image.jpg")
         
-        // Test simple link
+        // Test simple link (uses filename as link text)
         val simpleLink = AttachmentManager.createAttachmentLink(attachmentFile)
-        assertEquals("[[attachment:test-image.jpg]]", simpleLink)
+        assertEquals("[[attachment:test-image.jpg][test-image.jpg]]", simpleLink)
         
         // Test link with description
         val linkWithDescription = AttachmentManager.createAttachmentLink(attachmentFile, "My Test Image")

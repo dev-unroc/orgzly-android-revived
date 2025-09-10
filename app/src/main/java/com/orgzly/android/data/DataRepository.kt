@@ -330,7 +330,19 @@ class DataRepository @Inject constructor(
         return BookView(book.copy(id = id), 0)
     }
 
-    fun deleteBook(book: BookView, deleteLinked: Boolean) {
+    fun deleteBook(book: BookView, deleteLinked: Boolean, deleteAttachments: Boolean = false) {
+        // Clean up attachments before deleting the book if requested
+        if (deleteAttachments) {
+            try {
+                com.orgzly.android.util.AttachmentManager.cleanupBookAttachments(this, book)
+            } catch (e: Exception) {
+                // Log error but don't fail the book deletion
+                if (BuildConfig.LOG_DEBUG) {
+                    android.util.Log.e(TAG, "Failed to clean up attachments for book ${book.book.name}", e)
+                }
+            }
+        }
+        
         if (deleteLinked) {
             book.syncedTo?.let { vrook ->
                 val repo = getRepoInstance(vrook.repoId, vrook.repoType, vrook.repoUri.toString())
@@ -340,6 +352,14 @@ class DataRepository @Inject constructor(
         }
 
         db.book().delete(book.book)
+    }
+    
+    /**
+     * Get all notes in a book that have attachments.
+     * This looks for notes containing attachment links or ATTACH tags.
+     */
+    fun getNotesWithAttachments(bookId: Long): List<Note> {
+        return db.note().getNotesWithAttachments(bookId)
     }
 
     fun renameBook(bookView: BookView, name: String) {

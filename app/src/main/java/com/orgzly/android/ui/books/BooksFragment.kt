@@ -336,8 +336,9 @@ class BooksFragment : CommonFragment(), DrawerItem, OnViewHolderClickListener<Bo
             when (which) {
                 DialogInterface.BUTTON_POSITIVE -> {
                     val deleteLinked = dialogBinding.deleteLinkedCheckbox.isChecked
+                    val deleteAttachments = dialogBinding.deleteAttachmentsCheckbox.isChecked
                     val bookIds = books.map { it.book.id }.toSet()
-                    viewModel.deleteBooks(bookIds, deleteLinked)
+                    viewModel.deleteBooks(bookIds, deleteLinked, deleteAttachments)
                 }
             }
         }

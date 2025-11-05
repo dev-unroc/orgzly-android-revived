@@ -80,6 +80,7 @@ import com.orgzly.org.datetime.OrgDateTime;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Set;
@@ -671,8 +672,8 @@ public class MainActivity extends CommonActivity
     }
 
     @Override
-    public void onNotesDeleteRequest(final long bookId, final Set<Long> noteIds) {
-        mSyncFragment.run(new NoteDelete(bookId, noteIds));
+    public void onNotesDeleteRequest(final long bookId, final Set<Long> noteIds, final boolean deleteAttachments) {
+        mSyncFragment.run(new NoteDelete(bookId, noteIds, deleteAttachments));
     }
 
     @Override
@@ -899,6 +900,14 @@ public class MainActivity extends CommonActivity
         intent.putExtra(AppIntent.EXTRA_PATH, path);
         LocalBroadcastManager.getInstance(App.getAppContext()).sendBroadcast(intent);
     }
+    
+    public static void followLinkToFileWithContext(String path, String noteId, File bookFile) {
+        Intent intent = new Intent(AppIntent.ACTION_FOLLOW_LINK_TO_FILE);
+        intent.putExtra(AppIntent.EXTRA_PATH, path);
+        intent.putExtra(AppIntent.EXTRA_NOTE_ID, noteId);
+        intent.putExtra(AppIntent.EXTRA_BOOK_FILE, bookFile.getAbsolutePath());
+        LocalBroadcastManager.getInstance(App.getAppContext()).sendBroadcast(intent);
+    }
 
     public static void followLinkToNoteOrBookWithProperty(String name, String value) {
         Intent intent = new Intent(AppIntent.ACTION_FOLLOW_LINK_TO_NOTE_OR_BOOK_WITH_PROPERTY);
@@ -979,7 +988,15 @@ public class MainActivity extends CommonActivity
 
                 case AppIntent.ACTION_FOLLOW_LINK_TO_FILE: {
                     String path = intent.getStringExtra(AppIntent.EXTRA_PATH);
-                    viewModel.followLinkToFile(path);
+                    String noteId = intent.getStringExtra(AppIntent.EXTRA_NOTE_ID);
+                    String bookFilePath = intent.getStringExtra(AppIntent.EXTRA_BOOK_FILE);
+                    
+                    if (noteId != null && bookFilePath != null) {
+                        File bookFile = new File(bookFilePath);
+                        viewModel.followLinkToFileWithContext(path, noteId, bookFile);
+                    } else {
+                        viewModel.followLinkToFile(path);
+                    }
                     break;
                 }
             }

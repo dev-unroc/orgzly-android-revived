@@ -27,7 +27,7 @@ import com.orgzly.android.usecase.UseCaseRunner
 import com.orgzly.android.util.LogUtils
 
 
-class BooksViewModel(private val dataRepository: DataRepository) : CommonViewModel() {
+class BooksViewModel(val dataRepository: DataRepository) : CommonViewModel() {
     private val booksParams = MutableLiveData<String>()
 
     // Book being operated on (deleted, renamed, etc.)
@@ -80,10 +80,10 @@ class BooksViewModel(private val dataRepository: DataRepository) : CommonViewMod
         }
     }
 
-    fun deleteBooks(bookIds: Set<Long>, deleteLinked: Boolean) {
+    fun deleteBooks(bookIds: Set<Long>, deleteLinked: Boolean, deleteAttachments: Boolean = false) {
         App.EXECUTORS.diskIO().execute {
             catchAndPostError {
-                val result = UseCaseRunner.run(BookDelete(bookIds, deleteLinked))
+                val result = UseCaseRunner.run(BookDelete(bookIds, deleteLinked, deleteAttachments))
                 bookDeletedEvent.postValue(result)
             }
         }

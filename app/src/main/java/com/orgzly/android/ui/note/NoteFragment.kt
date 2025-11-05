@@ -58,7 +58,10 @@ import com.orgzly.android.ui.util.goneUnless
 import com.orgzly.android.ui.util.invisibleIf
 import com.orgzly.android.ui.util.invisibleUnless
 import com.orgzly.android.util.LogUtils
+import com.orgzly.android.util.MiscUtils
+import com.orgzly.android.util.AttachmentManager
 import com.orgzly.android.util.OrgFormatter
+import com.orgzly.android.BookName
 import com.orgzly.android.util.SpaceTokenizer
 import com.orgzly.android.util.UserTimeFormatter
 import com.orgzly.databinding.FragmentNoteBinding
@@ -126,8 +129,19 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             // Initial values when sharing
             val title = args.getString(ARG_TITLE)
             val content = args.getString(ARG_CONTENT)
+            val tags: List<String>? = args.getStringArrayList(ARG_TAGS)
+            val propertiesBundle = args.getBundle(ARG_PROPERTIES)
+            val properties = propertiesBundle?.let { bundle ->
+                val map = mutableMapOf<String, String>()
+                for (key in bundle.keySet()) {
+                    bundle.getString(key)?.let { value ->
+                        map[key] = value
+                    }
+                }
+                map
+            }
 
-            return NoteInitialData(bookId, noteId, place, title, content)
+            return NoteInitialData(bookId, noteId, place, title, content, tags, properties)
         }
     }
 
@@ -417,18 +431,43 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             activity?.showSnackbar(message)
         })
 
-        viewModel.noteDeleteRequest.observeSingle(viewLifecycleOwner, Observer { count ->
-            val question = resources.getQuantityString(
-                R.plurals.delete_note_or_notes_with_count_question, count, count)
+        viewModel.noteDeleteRequest.observeSingle(viewLifecycleOwner, Observer { deleteInfo ->
+            val count = deleteInfo.count
+            val hasAttachments = deleteInfo.hasAttachments
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Delete dialog: count=$count, hasAttachments=$hasAttachments")
+            }
+            
+            if (hasAttachments) {
+                // Show attachment-aware deletion dialog
+                val question = resources.getQuantityString(
+                    R.plurals.delete_note_or_notes_with_count_question, count, count)
 
-            dialog = MaterialAlertDialogBuilder(requireContext())
-                .setTitle(question)
-                .setPositiveButton(R.string.delete) { _, _ ->
-                    viewModel.deleteNote()
-                }
-                .setNegativeButton(R.string.cancel) { _, _ -> }
-                .show()
+                dialog = MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(question)
+                    .setMessage("This note has attachments. Do you want to delete the attachment files as well?")
+                    .setPositiveButton("Delete All") { _, _ ->
+                        viewModel.deleteNote(deleteAttachments = true)
+                    }
+                    .setNegativeButton("Delete Note Only") { _, _ ->
+                        viewModel.deleteNote(deleteAttachments = false)
+                    }
+                    .setNeutralButton(R.string.cancel) { _, _ -> }
+                    .show()
+            } else {
+                // Show regular deletion dialog
+                val question = resources.getQuantityString(
+                    R.plurals.delete_note_or_notes_with_count_question, count, count)
 
+                dialog = MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(question)
+                    .setPositiveButton(R.string.delete) { _, _ ->
+                        viewModel.deleteNote()
+                    }
+                    .setNegativeButton(R.string.cancel) { _, _ -> }
+                    .show()
+            }
         })
 
         viewModel.bookChangeRequestEvent.observeSingle(viewLifecycleOwner, Observer { books ->
@@ -477,7 +516,31 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
         }
         addPropertyToList(null, null)
 
-        // Content
+        // Set note context for attachment/image resolution BEFORE setting content
+        try {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "updateViewsFromPayload: viewModel.noteId=${viewModel.noteId}, viewModel.isNew()=${viewModel.isNew()}")
+            }
+            
+            val note = if (viewModel.noteId > 0) dataRepository.getNote(viewModel.noteId) else null
+            val noteIdProperty = note?.let { AttachmentManager.extractNoteId(it, dataRepository) }
+            val bookView = dataRepository.getBookView(viewModel.bookId)
+            val bookFile = bookView?.let { getBookFileFromBookView(it) }
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "updateViewsFromPayload: bookId=${viewModel.bookId}, bookView=$bookView")
+                LogUtils.d(TAG, "updateViewsFromPayload: note=$note, noteIdProperty=$noteIdProperty, bookFile=$bookFile")
+            }
+            
+            // Set context for RichText to enable image loading
+            binding.content.setNoteContext(noteIdProperty, bookFile)
+        } catch (e: Exception) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Failed to set note context for RichText: ${e.message}")
+            }
+        }
+        
+        // Content - set this AFTER setting note context
         binding.content.setSourceText(payload.content)
     }
 
@@ -545,6 +608,38 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
     private fun lastProperty(): ViewGroup {
         return binding.propertiesContainer
             .getChildAt(binding.propertiesContainer.childCount - 1) as ViewGroup
+    }
+    
+    /**
+     * Extract the book file path from BookView for attachment resolution.
+     */
+    private fun getBookFileFromBookView(bookView: BookView): java.io.File? {
+        if (bookView.syncedTo != null) {
+            val repoRelativePath = BookName.getRepoRelativePath(bookView)
+            val repo = bookView.linkRepo
+            
+            if (repo != null) {
+                when {
+                    repo.url.startsWith("file:") -> {
+                        val repoPath = repo.url.removePrefix("file:")
+                        return java.io.File(repoPath, repoRelativePath)
+                    }
+                    repo.url.startsWith("content://com.android.externalstorage.documents/tree/primary") -> {
+                        // Handle document URIs for external storage
+                        val path = repo.url.removePrefix("content://com.android.externalstorage.documents/tree/primary")
+                        val decodedPath = java.net.URLDecoder.decode(path, "UTF-8")
+                        val cleanPath = if (decodedPath.startsWith(":")) decodedPath.substring(1) else decodedPath
+                        val repoPath = "/storage/emulated/0/$cleanPath"
+                        return java.io.File(repoPath, repoRelativePath)
+                    }
+                }
+            }
+        }
+        
+        // Fallback to app external directory
+        val appExternalDir = context?.getExternalFilesDir("orgzly-books") ?: context?.filesDir
+        val bookDirName = bookView.book.name.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+        return appExternalDir?.let { java.io.File(it, "$bookDirName.org") }
     }
 
     private fun updatePayloadFromViews() {
@@ -1104,6 +1199,15 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
     fun getNoteId(): Long {
         return viewModel.noteId
     }
+    
+    /**
+     * Reload the note data from the database.
+     * Useful when note content has been updated externally.
+     */
+    fun reloadData() {
+        if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "Reloading note data")
+        viewModel.loadData()
+    }
 
     interface Listener {
         fun onNoteCreated(note: Note)
@@ -1123,13 +1227,17 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
         private const val ARG_PLACE = "place"
         private const val ARG_TITLE = "title"
         private const val ARG_CONTENT = "content"
+        private const val ARG_TAGS = "tags"
+        private const val ARG_PROPERTIES = "properties"
 
         @JvmStatic
         @JvmOverloads
         fun forNewNote(
             notePlace: NotePlace,
             initialTitle: String? = null,
-            initialContent: String? = null): NoteFragment? {
+            initialContent: String? = null,
+            initialTags: List<String>? = null,
+            initialProperties: Map<String, String>? = null): NoteFragment? {
 
             return if (notePlace.bookId > 0) {
                 getInstance(
@@ -1137,7 +1245,9 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
                     notePlace.noteId,
                     notePlace.place,
                     initialTitle,
-                    initialContent)
+                    initialContent,
+                    initialTags,
+                    initialProperties)
             } else {
                 Log.e(TAG, "Invalid book id ${notePlace.bookId}")
                 null
@@ -1160,7 +1270,9 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
             noteId: Long,
             place: Place? = null,
             initialTitle: String? = null,
-            initialContent: String? = null): NoteFragment {
+            initialContent: String? = null,
+            initialTags: List<String>? = null,
+            initialProperties: Map<String, String>? = null): NoteFragment {
 
             val fragment = NoteFragment()
 
@@ -1182,6 +1294,18 @@ class NoteFragment : CommonFragment(), View.OnClickListener, TimestampDialogFrag
 
             if (initialContent != null) {
                 args.putString(ARG_CONTENT, initialContent)
+            }
+
+            if (initialTags != null) {
+                args.putStringArrayList(ARG_TAGS, ArrayList(initialTags))
+            }
+
+            if (initialProperties != null) {
+                val propertiesBundle = Bundle()
+                initialProperties.forEach { (key, value) ->
+                    propertiesBundle.putString(key, value)
+                }
+                args.putBundle(ARG_PROPERTIES, propertiesBundle)
             }
 
             fragment.arguments = args

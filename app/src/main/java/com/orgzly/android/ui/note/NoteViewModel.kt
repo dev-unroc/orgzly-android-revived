@@ -23,7 +23,10 @@ import com.orgzly.android.usecase.NoteCreate
 import com.orgzly.android.usecase.NoteDelete
 import com.orgzly.android.usecase.NoteUpdate
 import com.orgzly.android.usecase.UseCaseRunner
+import com.orgzly.android.util.AttachmentManager
+import com.orgzly.android.util.LogUtils
 import com.orgzly.android.util.MiscUtils
+import com.orgzly.BuildConfig
 import com.orgzly.org.OrgProperties
 import com.orgzly.org.datetime.OrgRange
 import com.orgzly.org.parser.OrgParserWriter
@@ -33,7 +36,14 @@ data class NoteInitialData(
     val noteId: Long, // Could be 0 if new note is being created
     val place: Place? = null, // Relative location, used for new notes
     val title: String? = null, // Initial title, used for when sharing
-    val content: String? = null // Initial content, used for when sharing
+    val content: String? = null, // Initial content, used for when sharing
+    val tags: List<String>? = null, // Initial tags, used for when sharing
+    val properties: Map<String, String>? = null // Initial properties, used for when sharing
+)
+
+data class NoteDeleteInfo(
+    val count: Int,
+    val hasAttachments: Boolean
 )
 
 class NoteViewModel(
@@ -42,9 +52,11 @@ class NoteViewModel(
 
     var bookId = initialData.bookId
     var noteId = initialData.noteId
-    private val place = initialData.place
+    private var place = initialData.place
     private val title = initialData.title
     private val content = initialData.content
+    private val initialTags = initialData.tags
+    private val initialProperties = initialData.properties
 
     val bookView: MutableLiveData<BookView?> = MutableLiveData()
 
@@ -60,7 +72,7 @@ class NoteViewModel(
     val noteUpdatedEvent: SingleLiveEvent<Note> = SingleLiveEvent()
     val noteDeletedEvent: SingleLiveEvent<Int> = SingleLiveEvent()
 
-    val noteDeleteRequest: SingleLiveEvent<Int> = SingleLiveEvent()
+    val noteDeleteRequest: SingleLiveEvent<NoteDeleteInfo> = SingleLiveEvent()
     val bookChangeRequestEvent: SingleLiveEvent<List<BookView>> = SingleLiveEvent()
 
     var notePayload: NotePayload? = null
@@ -69,6 +81,8 @@ class NoteViewModel(
 
     fun loadData() {
         App.EXECUTORS.diskIO().execute {
+            if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: noteId=$noteId, place=$place, isNew()=${isNew()}")
+            
             val book = dataRepository.getBookView(bookId)
 
             val note = dataRepository.getNoteView(noteId)
@@ -81,8 +95,10 @@ class NoteViewModel(
             }
 
             notePayload = if (isNew()) {
-                NoteBuilder.newPayload(App.getAppContext(), title.orEmpty(), content)
+                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Creating new payload with title='${title.orEmpty()}', content='$content', tags=$initialTags, properties=$initialProperties")
+                NoteBuilder.newPayload(App.getAppContext(), title.orEmpty(), content, initialTags, initialProperties)
             } else {
+                if (BuildConfig.LOG_DEBUG) LogUtils.d(TAG, "loadData: Loading existing payload from database for noteId=$noteId")
                 dataRepository.getNotePayload(noteId)
             }
 
@@ -104,13 +120,29 @@ class NoteViewModel(
     fun requestNoteDelete() {
         App.EXECUTORS.diskIO().execute {
             val count = dataRepository.getNotesAndSubtreesCount(setOf(noteId))
-            noteDeleteRequest.postValue(count)
+            
+            // Check if any of the notes to be deleted have attachments
+            val notes = dataRepository.getNotesAndSubtrees(setOf(noteId))
+            val hasAttachments = notes.any { note -> 
+                val result = AttachmentManager.noteHasAttachments(note)
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Note ${note.id} has attachments: $result (tags: '${note.tags}', content contains 'attachment:': ${note.content?.contains("attachment:") == true})")
+                }
+                result
+            }
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Delete request: count=$count, hasAttachments=$hasAttachments")
+            }
+            
+            // Post combined information
+            noteDeleteRequest.postValue(NoteDeleteInfo(count, hasAttachments))
         }
     }
 
-    fun deleteNote() {
+    fun deleteNote(deleteAttachments: Boolean = false) {
         App.EXECUTORS.diskIO().execute {
-            val useCase = NoteDelete(bookId, setOf(noteId))
+            val useCase = NoteDelete(bookId, setOf(noteId), deleteAttachments)
             catchAndPostError {
                 val result = UseCaseRunner.run(useCase)
                 noteDeletedEvent.postValue(result.userData as Int)
@@ -183,6 +215,9 @@ class NoteViewModel(
 
                     // Update note ID after creating note
                     noteId = note.id
+                    
+                    // Clear place to transition from "new note" to "existing note" mode
+                    place = null
 
                     if (postSave != null) {
                         postSave(note)
@@ -303,5 +338,6 @@ class NoteViewModel(
     }
 
     companion object {
+        private val TAG = NoteViewModel::class.java.name
     }
 }

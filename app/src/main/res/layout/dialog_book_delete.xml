@@ -28,4 +28,15 @@
         tools:text="content://com.android.providers.downloads.documents/tree/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2Forg/document/raw%3A%2Fstorage%2Femulated%2F0%2FDownload%2Forg%2Fgtd.org"
         android:enabled="false" />
 
+    <CheckBox
+        android:id="@+id/delete_attachments_checkbox"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|center_vertical"
+        android:gravity="start|center_vertical"
+        android:text="@string/also_delete_attachments"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:layout_marginTop="8dp" />
+
 </LinearLayout>

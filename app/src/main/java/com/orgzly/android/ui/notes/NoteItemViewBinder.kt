@@ -7,8 +7,11 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.annotation.ColorInt
 import androidx.constraintlayout.widget.ConstraintLayout
+import com.orgzly.BuildConfig
 import com.orgzly.R
 import com.orgzly.android.App
+import com.orgzly.android.BookName
+import com.orgzly.android.data.DataRepository
 import com.orgzly.android.db.entity.Note
 import com.orgzly.android.db.entity.NoteView
 import com.orgzly.android.prefs.AppPreferences
@@ -19,11 +22,15 @@ import com.orgzly.android.usecase.NoteToggleFolding
 import com.orgzly.android.usecase.NoteToggleFoldingSubtree
 import com.orgzly.android.usecase.NoteUpdateContent
 import com.orgzly.android.usecase.UseCaseRunner
+import com.orgzly.android.util.AttachmentManager
+import com.orgzly.android.util.LogUtils
 import com.orgzly.android.util.UserTimeFormatter
 import com.orgzly.databinding.ItemAgendaDividerBinding
 import com.orgzly.databinding.ItemHeadBinding
+import java.io.File
+import java.net.URLDecoder
 
-class NoteItemViewBinder(private val context: Context, private val inBook: Boolean) {
+class NoteItemViewBinder(private val context: Context, private val inBook: Boolean, private val dataRepository: DataRepository? = null) {
     private val attrs: Attrs = Attrs.obtain(context)
 
     private val titleGenerator: TitleGenerator
@@ -100,6 +107,19 @@ class NoteItemViewBinder(private val context: Context, private val inBook: Boole
         if (note.hasContent() && titleGenerator.shouldDisplayContent(note)) {
             if (AppPreferences.isFontMonospaced(context)) {
                 holder.binding.itemHeadContent.setTypeface(Typeface.MONOSPACE)
+            }
+
+            // Set note context for attachment/image resolution BEFORE setting content
+            try {
+                val noteIdProperty = AttachmentManager.extractNoteId(note, dataRepository)
+                val bookFile = getBookFileForNote(note)
+                
+                // Set context for RichText to enable image loading in list items
+                holder.binding.itemHeadContent.setNoteContext(noteIdProperty, bookFile)
+            } catch (e: Exception) {
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Failed to set note context for list item RichText: ${e.message}")
+                }
             }
 
             holder.binding.itemHeadContent.setSourceText(note.content)
@@ -388,7 +408,52 @@ class NoteItemViewBinder(private val context: Context, private val inBook: Boole
         return true
     }
 
+    /**
+     * Get the book file for a note to enable attachment resolution.
+     * This is similar to the method in NoteFragment but adapted for list items.
+     */
+    private fun getBookFileForNote(note: Note): File? {
+        return try {
+            val repo = dataRepository ?: return null
+            val bookView = repo.getBookView(note.position.bookId) ?: return null
+            
+            // If book has a synced location, try to use repo relative path
+            if (bookView.syncedTo != null) {
+                val repoRelativePath = BookName.getRepoRelativePath(bookView)
+                val repo = bookView.linkRepo
+                
+                if (repo != null) {
+                    when {
+                        repo.url.startsWith("file:") -> {
+                            val repoPath = repo.url.removePrefix("file:")
+                            return File(repoPath, repoRelativePath)
+                        }
+                        repo.url.startsWith("content://com.android.externalstorage.documents/tree/primary") -> {
+                            // Handle document URIs for external storage
+                            val path = repo.url.removePrefix("content://com.android.externalstorage.documents/tree/primary")
+                            val decodedPath = URLDecoder.decode(path, "UTF-8")
+                            val cleanPath = if (decodedPath.startsWith(":")) decodedPath.substring(1) else decodedPath
+                            val repoPath = "/storage/emulated/0/$cleanPath"
+                            return File(repoPath, repoRelativePath)
+                        }
+                    }
+                }
+            }
+            
+            // Fallback to app external directory
+            val appExternalDir = context.getExternalFilesDir("orgzly-books") ?: context.filesDir
+            val bookDirName = bookView.book.name.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+            return File(appExternalDir, "$bookDirName.org")
+        } catch (e: Exception) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Failed to get book file for note: ${e.message}")
+            }
+            null
+        }
+    }
+
     companion object {
+        val TAG: String = NoteItemViewBinder::class.java.name
         const val ARCHIVE_TAG = "ARCHIVE"
 
         /**

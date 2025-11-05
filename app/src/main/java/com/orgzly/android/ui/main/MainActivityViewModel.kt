@@ -70,6 +70,21 @@ class MainActivityViewModel(private val dataRepository: DataRepository) : Common
             }
         }
     }
+    
+    fun followLinkToFileWithContext(path: String, noteId: String, bookFile: File) {
+        App.EXECUTORS.diskIO().execute {
+            catchAndPostError {
+                val result = UseCaseRunner.run(LinkFindTarget(path, noteId, bookFile)).userData
+
+                if (result is File) {
+                    navigationActions.postValue(MainNavigationAction.OpenFile(result))
+
+                } else if (result is Book) {
+                    navigationActions.postValue(MainNavigationAction.OpenBook(result.id))
+                }
+            }
+        }
+    }
 
     fun displayQuery(query: String) {
         navigationActions.postValue(MainNavigationAction.DisplayQuery(query))

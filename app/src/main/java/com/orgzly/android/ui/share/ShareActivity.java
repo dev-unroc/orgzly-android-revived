@@ -34,8 +34,11 @@ import com.orgzly.android.SharingShortcutsManager;
 import com.orgzly.android.ui.sync.SyncFragment;
 import com.orgzly.android.ui.note.NoteFragment;
 import com.orgzly.android.ui.util.ActivityUtils;
+import com.orgzly.android.usecase.AttachmentSaveFiles;
 import com.orgzly.android.usecase.UseCase;
 import com.orgzly.android.usecase.UseCaseResult;
+import com.orgzly.android.usecase.UseCaseRunner;
+import com.orgzly.android.util.AttachmentManager;
 import com.orgzly.android.util.LogUtils;
 import com.orgzly.android.util.MiscUtils;
 
@@ -43,6 +46,10 @@ import java.io.File;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import javax.inject.Inject;
 
@@ -69,6 +76,8 @@ public class ShareActivity extends CommonActivity
     private String mError;
 
     private AlertDialog dialog;
+    
+    private Data mPendingAttachmentData;
 
     @Inject
     DataRepository dataRepository;
@@ -200,8 +209,8 @@ public class ShareActivity extends CommonActivity
                                 + " from passed shortcut ID");
                 }
 
-            } else if (type.startsWith("image/")) {
-                handleSendImage(intent, data); // Handle single image being sent
+            } else if (type.startsWith("image/") || type.startsWith("application/") || type.startsWith("text/") && intent.hasExtra(Intent.EXTRA_STREAM)) {
+                handleSendFile(intent, data); // Handle file being sent
 
             } else {
                 mError = getString(R.string.share_type_not_supported, type);
@@ -244,8 +253,27 @@ public class ShareActivity extends CommonActivity
                     bookId = data.bookId;
                 }
 
+                // Store attachment data for processing after note creation
+                mPendingAttachmentData = data;
+
+                // Prepare initial tags and properties for attachment notes
+                List<String> initialTags = null;
+                Map<String, String> initialProperties = null;
+                
+                if (data.useAttachmentSystem) {
+                    // Add ATTACH tag for attachment notes
+                    initialTags = new ArrayList<>();
+                    initialTags.add("ATTACH");
+                    
+                    // Add ID property for attachment notes  
+                    if (data.noteId != null) {
+                        initialProperties = new HashMap<>();
+                        initialProperties.put("ID", data.noteId);
+                    }
+                }
+
                 noteFragment = NoteFragment.forNewNote(
-                        new NotePlace(bookId), data.title, data.content);
+                        new NotePlace(bookId), data.title, data.content, initialTags, initialProperties);
 
                 getSupportFragmentManager()
                         .beginTransaction()
@@ -316,7 +344,28 @@ public class ShareActivity extends CommonActivity
 
     @Override
     public void onNoteCreated(Note note) {
-        finish();
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "onNoteCreated called for note ID: " + note.getId() + ", title: '" + note.getTitle() + "'");
+            LogUtils.d(TAG, "mPendingAttachmentData != null: " + (mPendingAttachmentData != null));
+            if (mPendingAttachmentData != null) {
+                LogUtils.d(TAG, "useAttachmentSystem: " + mPendingAttachmentData.useAttachmentSystem);
+                LogUtils.d(TAG, "noteId: " + mPendingAttachmentData.noteId);
+                LogUtils.d(TAG, "sharedFileUri: " + mPendingAttachmentData.sharedFileUri);
+            }
+        }
+        
+        // Process attachment if needed
+        if (mPendingAttachmentData != null && mPendingAttachmentData.useAttachmentSystem) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Processing attachment for note creation");
+            }
+            processAttachmentAfterNoteCreation(note.getId());
+        } else {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "No attachment to process, finishing activity");
+            }
+            finish();
+        }
     }
 
     @Override
@@ -347,17 +396,81 @@ public class ShareActivity extends CommonActivity
         String title;
         String content;
         Long bookId = null;
+        String noteId = null;
+        boolean useAttachmentSystem = false;
+        Uri sharedFileUri = null;
     }
 
     /**
-     * Get file path from image shared with Orgzly
-     * and put it as a file link in the note's content.
+     * Enhanced file handling that supports the attachment system.
+     * Copies shared files to attachment directories with proper org-mode links.
      */
-    private void handleSendImage(Intent intent, Data data) {
-        // Get file uri from intent which probably looks like this:
-        // content://media/external/images/...
+    private void handleSendFile(Intent intent, Data data) {
         Uri uri = intent.getParcelableExtra(Intent.EXTRA_STREAM);
+        
+        if (uri == null) {
+            mError = "No file URI provided";
+            return;
+        }
 
+        // Check if attachment system should be used
+        boolean useAttachments = AppPreferences.attachmentsEnabled(this);
+        
+        if (useAttachments) {
+            handleSendFileWithAttachments(uri, data);
+        } else {
+            handleSendFileTraditional(uri, data);
+        }
+    }
+
+    /**
+     * Handle file sharing with the new attachment system.
+     */
+    private void handleSendFileWithAttachments(Uri uri, Data data) {
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "handleSendFileWithAttachments called with URI: " + uri);
+        }
+        
+        try {
+            // Generate note ID for attachments
+            data.noteId = AttachmentManager.generateNoteId();
+            data.useAttachmentSystem = true;
+            data.sharedFileUri = uri;
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Generated note ID for attachment: " + data.noteId);
+                LogUtils.d(TAG, "Set useAttachmentSystem to true, sharedFileUri: " + uri);
+            }
+            
+            // Get filename from URI
+            String filename = AttachmentManager.getFileNameFromUri(this, uri);
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Extracted filename from URI: " + filename);
+            }
+            
+            // Create attachment link
+            data.content = AttachmentManager.createAttachmentLink(new File(filename));
+            data.title = filename;
+            
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "Created attachment link content: " + data.content);
+                LogUtils.d(TAG, "Set title to: " + data.title);
+                LogUtils.d(TAG, "Successfully prepared data for attachment system");
+            }
+            
+        } catch (Exception e) {
+            if (BuildConfig.LOG_DEBUG) {
+                Log.e(TAG, "Failed to handle file with attachment system, falling back to traditional", e);
+            }
+            handleSendFileTraditional(uri, data);
+        }
+    }
+
+    /**
+     * Traditional file handling (original handleSendImage logic).
+     */
+    private void handleSendFileTraditional(Uri uri, Data data) {
         try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
             if (cursor != null) {
                 cursor.moveToFirst();
@@ -380,8 +493,7 @@ public class ShareActivity extends CommonActivity
 
                 if (data.content == null) {
                     data.content = uri.toString()
-                            + "\n\nCannot determine path to this image "
-                            + "and only linking to an image is currently supported.";
+                            + "\n\nCannot determine path to this file.";
 
                     Log.e(TAG, DatabaseUtils.dumpCursorToString(cursor));
                 }
@@ -398,7 +510,108 @@ public class ShareActivity extends CommonActivity
 
         if (data.title == null) {
             data.title = uri.toString();
-            data.content = "Cannot find image using this URI.";
+            data.content = "Cannot find file using this URI.";
         }
+    }
+
+    /**
+     * Legacy method - kept for compatibility but now redirects to enhanced handling.
+     */
+    private void handleSendImage(Intent intent, Data data) {
+        handleSendFile(intent, data);
+    }
+    
+    /**
+     * Process attachment after note has been created.
+     * This copies the shared file to the attachment directory and updates the note.
+     */
+    private void processAttachmentAfterNoteCreation(long noteId) {
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "processAttachmentAfterNoteCreation called for note ID: " + noteId);
+            LogUtils.d(TAG, "mPendingAttachmentData != null: " + (mPendingAttachmentData != null));
+            if (mPendingAttachmentData != null) {
+                LogUtils.d(TAG, "sharedFileUri != null: " + (mPendingAttachmentData.sharedFileUri != null));
+            }
+        }
+        
+        if (mPendingAttachmentData == null || mPendingAttachmentData.sharedFileUri == null) {
+            if (BuildConfig.LOG_DEBUG) {
+                LogUtils.d(TAG, "No pending attachment data or URI, finishing activity");
+            }
+            finish();
+            return;
+        }
+        
+        if (BuildConfig.LOG_DEBUG) {
+            LogUtils.d(TAG, "Starting attachment processing on background thread");
+        }
+        
+        App.EXECUTORS.diskIO().execute(() -> {
+            try {
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Creating AttachmentSaveFiles use case with:");
+                    LogUtils.d(TAG, "  noteId: " + noteId);
+                    LogUtils.d(TAG, "  sharedFileUri: " + mPendingAttachmentData.sharedFileUri);
+                    LogUtils.d(TAG, "  noteIdProperty: " + mPendingAttachmentData.noteId);
+                }
+                
+                UseCaseRunner.run(new AttachmentSaveFiles(
+                    noteId, 
+                    mPendingAttachmentData.sharedFileUri, 
+                    mPendingAttachmentData.noteId
+                ));
+                
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Successfully processed attachment for note: " + noteId);
+                }
+                
+            } catch (Exception e) {
+                if (BuildConfig.LOG_DEBUG) {
+                    Log.e(TAG, "Failed to process attachment for note: " + noteId, e);
+                }
+                
+                App.EXECUTORS.mainThread().execute(() -> {
+                    AppSnackbarUtils.showSnackbar(ShareActivity.this, 
+                        "Failed to save attachment: " + e.getLocalizedMessage());
+                });
+            } finally {
+                if (BuildConfig.LOG_DEBUG) {
+                    LogUtils.d(TAG, "Cleaning up attachment processing");
+                }
+                mPendingAttachmentData = null;
+                
+                // Reload NoteFragment data so it can see the updated note with ID property
+                App.EXECUTORS.mainThread().execute(() -> {
+                    try {
+                        NoteFragment noteFragment = (NoteFragment) getSupportFragmentManager()
+                                .findFragmentByTag(NoteFragment.FRAGMENT_TAG);
+                        if (noteFragment != null) {
+                            if (BuildConfig.LOG_DEBUG) {
+                                LogUtils.d(TAG, "Reloading NoteFragment data after attachment processing");
+                            }
+                            noteFragment.reloadData();
+                            
+                            // Give the fragment some time to reload before finishing
+                            new android.os.Handler().postDelayed(() -> {
+                                if (BuildConfig.LOG_DEBUG) {
+                                    LogUtils.d(TAG, "Finishing activity after note reload");
+                                }
+                                finish();
+                            }, 500);
+                        } else {
+                            if (BuildConfig.LOG_DEBUG) {
+                                LogUtils.d(TAG, "NoteFragment not found, finishing activity immediately");
+                            }
+                            finish();
+                        }
+                    } catch (Exception e) {
+                        if (BuildConfig.LOG_DEBUG) {
+                            LogUtils.d(TAG, "Error reloading NoteFragment: " + e.getMessage());
+                        }
+                        finish();
+                    }
+                });
+            }
+        });
     }
 }

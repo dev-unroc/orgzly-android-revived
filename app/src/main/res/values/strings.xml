@@ -253,6 +253,7 @@
 
     <string name="also_delete_linked_book">Delete linked remote notebook</string>
     <string name="also_delete_linked_books">Delete any linked remote notebooks</string>
+    <string name="also_delete_attachments">Delete remote attachments</string>
     <string name="message_deleting_book_failed">Deleting notebook(s) failed: %s</string>
     <string name="message_book_deleted">Notebook(s) deleted</string>
 
@@ -589,6 +590,13 @@
 
     <string name="scale_down_to_width">Scale down to width</string>
     <string name="scale_down_to_width_summary">Scale down image to specified width</string>
+
+    <string name="attachments">Attachments</string>
+    <string name="enable_attachment_system">Enable attachment system</string>
+    <string name="enable_attachment_system_summary">Copy shared files to attachments directories using org-mode format</string>
+
+    <string name="pref_key_attachment_storage_location">attachment_storage_location</string>
+    <string name="pref_default_attachment_storage_location">alongside_notes</string>
 
     <string name="file_absolute_root">Root for absolute links (e.g. file:/readme.txt)</string>
     <string name="file_relative_root">Root for relative links (e.g. file:readme.txt)</string>

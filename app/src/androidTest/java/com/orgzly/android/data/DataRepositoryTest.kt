@@ -3,9 +3,12 @@ package com.orgzly.android.data
 import com.google.gson.Gson
 import com.orgzly.android.OrgzlyTest
 import com.orgzly.android.prefs.AppPreferences
+import com.orgzly.android.util.AttachmentManager
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class DataRepositoryTest : OrgzlyTest() {
 
@@ -296,5 +299,177 @@ class DataRepositoryTest : OrgzlyTest() {
                 Gson().toJson(AppPreferences.getDefaultPrefsAsJsonObject(context))
             )
         }
+    }
+    
+    /**
+     * Test that attachments are cleaned up when a book is deleted.
+     */
+    @Test
+    fun testBookDeletionCleansUpAttachments() {
+        // Given - create a book with a note that has an attachment
+        val bookName = "test-book-with-attachments"
+        val noteId = "caeffd7f-f678-486b-8ffa-7bac167f4e71"
+        testUtils.setupBook(
+            bookName,
+            """
+                * Note with attachment   :ATTACH:
+                :PROPERTIES:
+                :ID: $noteId
+                :END:
+                
+                This note has an attachment: [[attachment:test-file.txt][test-file.txt]]
+
+           """.trimIndent()
+        )
+        
+        val book = dataRepository.getBook(bookName)!!
+        val bookView = dataRepository.getBookView(book.id)!!
+        
+        // Simulate creating attachment files for this note
+        val appExternalDir = context.getExternalFilesDir("orgzly-books")!!
+        val bookDirName = bookName.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+        val bookFile = File(appExternalDir, "$bookDirName.org")
+        val attachmentsDir = File(bookFile.parentFile, "attachments")
+        val prefixDir = File(attachmentsDir, "ca") // First 2 chars of note ID
+        val noteAttachDir = File(prefixDir, "effd7f-f678-486b-8ffa-7bac167f4e71") // Rest of note ID
+        noteAttachDir.mkdirs()
+        
+        val attachmentFile = File(noteAttachDir, "test-file.txt")
+        attachmentFile.writeText("This is test attachment content")
+        assertTrue("Attachment file should exist before deletion", attachmentFile.exists())
+        
+        // Verify the query finds notes with attachments
+        val notesWithAttachments = dataRepository.getNotesWithAttachments(book.id)
+        assertEquals("Should find 1 note with attachments", 1, notesWithAttachments.size)
+        
+        // When - delete the book with attachment cleanup enabled
+        dataRepository.deleteBook(bookView, false, true)
+        
+        // Then - attachment files should be cleaned up
+        assertFalse("Attachment file should be deleted", attachmentFile.exists())
+        assertFalse("Note attachment directory should be deleted", noteAttachDir.exists())
+        assertFalse("Prefix directory should be deleted if empty", prefixDir.exists())
+        
+        // Verify book is actually deleted
+        val deletedBook = dataRepository.getBook(bookName)
+        assertEquals("Book should be deleted", null, deletedBook)
+    }
+    
+    /**
+     * Test that attachments are NOT cleaned up when a book is deleted with deleteAttachments=false.
+     */
+    @Test
+    fun testBookDeletionPreservesAttachments() {
+        // Given - create a book with a note that has an attachment
+        val bookName = "test-book-preserve-attachments"
+        val noteId = "caeffd7f-f678-486b-8ffa-7bac167f4e72"
+        testUtils.setupBook(
+            bookName,
+            """
+                * Note with attachment   :ATTACH:
+                :PROPERTIES:
+                :ID: $noteId
+                :END:
+                
+                This note has an attachment: [[attachment:test-file.txt][test-file.txt]]
+
+           """.trimIndent()
+        )
+        
+        val book = dataRepository.getBook(bookName)!!
+        val bookView = dataRepository.getBookView(book.id)!!
+        
+        // Simulate creating attachment files for this note
+        val appExternalDir = context.getExternalFilesDir("orgzly-books")!!
+        val bookDirName = bookName.replace("[^a-zA-Z0-9_-]".toRegex(), "_")
+        val bookFile = File(appExternalDir, "$bookDirName.org")
+        val attachmentsDir = File(bookFile.parentFile, "attachments")
+        val prefixDir = File(attachmentsDir, "ca") // First 2 chars of note ID
+        val noteAttachDir = File(prefixDir, "effd7f-f678-486b-8ffa-7bac167f4e72") // Rest of note ID
+        noteAttachDir.mkdirs()
+        
+        val attachmentFile = File(noteAttachDir, "test-file.txt")
+        attachmentFile.writeText("This is test attachment content")
+        assertTrue("Attachment file should exist before deletion", attachmentFile.exists())
+        
+        // Verify the query finds notes with attachments
+        val notesWithAttachments = dataRepository.getNotesWithAttachments(book.id)
+        assertEquals("Should find 1 note with attachments", 1, notesWithAttachments.size)
+        
+        // When - delete the book with attachment cleanup disabled (default)
+        dataRepository.deleteBook(bookView, false, false)
+        
+        // Then - attachment files should NOT be cleaned up
+        assertTrue("Attachment file should still exist", attachmentFile.exists())
+        assertTrue("Note attachment directory should still exist", noteAttachDir.exists())
+        assertTrue("Prefix directory should still exist", prefixDir.exists())
+        
+        // Verify book is actually deleted
+        val deletedBook = dataRepository.getBook(bookName)
+        assertEquals("Book should be deleted", null, deletedBook)
+        
+        // Clean up the test files
+        attachmentsDir.deleteRecursively()
+    }
+    
+    /**
+     * Test the booksHaveAttachments method works correctly.
+     */
+    @Test
+    fun testBooksHaveAttachments() {
+        // Given - create two books, one with attachments and one without
+        val bookWithAttachments = "book-with-attachments"
+        val bookWithoutAttachments = "book-without-attachments"
+        val noteId = "test-note-id-123"
+        
+        testUtils.setupBook(
+            bookWithAttachments,
+            """
+                * Note with attachment   :ATTACH:
+                :PROPERTIES:
+                :ID: $noteId
+                :END:
+                
+                This note has an attachment: [[attachment:test.txt][test.txt]]
+            """.trimIndent()
+        )
+        
+        testUtils.setupBook(
+            bookWithoutAttachments,
+            """
+                * Regular note
+                
+                This note has no attachments.
+            """.trimIndent()
+        )
+        
+        val bookWithAttachmentsObj = dataRepository.getBook(bookWithAttachments)!!
+        val bookWithoutAttachmentsObj = dataRepository.getBook(bookWithoutAttachments)!!
+        
+        // When & Then - check individual books
+        assertTrue(
+            "Book with attachments should return true", 
+            dataRepository.booksHaveAttachments(setOf(bookWithAttachmentsObj.id))
+        )
+        
+        assertFalse(
+            "Book without attachments should return false", 
+            dataRepository.booksHaveAttachments(setOf(bookWithoutAttachmentsObj.id))
+        )
+        
+        // When & Then - check multiple books
+        assertTrue(
+            "Multiple books where one has attachments should return true",
+            dataRepository.booksHaveAttachments(setOf(
+                bookWithAttachmentsObj.id, 
+                bookWithoutAttachmentsObj.id
+            ))
+        )
+        
+        // When & Then - check empty set
+        assertFalse(
+            "Empty set should return false",
+            dataRepository.booksHaveAttachments(emptySet())
+        )
     }
 }

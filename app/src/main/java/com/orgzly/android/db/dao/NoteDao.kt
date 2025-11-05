@@ -359,6 +359,26 @@ abstract class NoteDao : BaseDao<Note> {
 
     @Query("UPDATE notes SET created_at= :time WHERE id = :noteId")
     abstract fun updateCreatedAtTime(noteId: Long, time: Long)
+    
+    /**
+     * Get all notes in a book that contain attachment links or ATTACH tags.
+     * This looks for notes with attachment: links in content or ATTACH in tags.
+     */
+    @Query("""
+        SELECT * FROM notes 
+        WHERE book_id = :bookId 
+        AND level > 0 
+        AND is_cut = 0 
+        AND (
+            content LIKE '%attachment:%' 
+            OR tags LIKE '% ATTACH %' 
+            OR tags LIKE 'ATTACH %' 
+            OR tags LIKE '% ATTACH' 
+            OR tags = 'ATTACH'
+        )
+        ORDER BY lft
+    """)
+    abstract fun getNotesWithAttachments(bookId: Long): List<Note>
 
     companion object {
         /* Every book has a root note with level 0. */

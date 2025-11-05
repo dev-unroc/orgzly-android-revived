@@ -331,13 +331,30 @@ class BooksFragment : CommonFragment(), DrawerItem, OnViewHolderClickListener<Bo
         dialogBinding.deleteLinkedCheckbox.setOnCheckedChangeListener { _, isChecked ->
             dialogBinding.deleteLinkedUrl.isEnabled = isChecked
         }
+        
+        // Check if any of the selected books have attachments
+        val bookIds = books.map { it.book.id }.toSet()
+        val booksHaveAttachments = viewModel.dataRepository.booksHaveAttachments(bookIds)
+        
+        // Show/hide attachments checkbox based on whether books have attachments
+        if (booksHaveAttachments) {
+            dialogBinding.deleteAttachmentsCheckbox.visibility = View.VISIBLE
+        } else {
+            dialogBinding.deleteAttachmentsCheckbox.visibility = View.GONE
+        }
 
         val dialogClickListener = DialogInterface.OnClickListener { _, which ->
             when (which) {
                 DialogInterface.BUTTON_POSITIVE -> {
                     val deleteLinked = dialogBinding.deleteLinkedCheckbox.isChecked
+                    // Only check attachment deletion if checkbox is visible
+                    val deleteAttachments = if (dialogBinding.deleteAttachmentsCheckbox.visibility == View.VISIBLE) {
+                        dialogBinding.deleteAttachmentsCheckbox.isChecked
+                    } else {
+                        false
+                    }
                     val bookIds = books.map { it.book.id }.toSet()
-                    viewModel.deleteBooks(bookIds, deleteLinked)
+                    viewModel.deleteBooks(bookIds, deleteLinked, deleteAttachments)
                 }
             }
         }
